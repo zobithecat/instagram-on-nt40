@@ -1,0 +1,27 @@
+# build artifacts
+/build/
+/dist/*.exe
+*.o
+*.obj
+
+# NEVER commit: copyrighted NT4 install media + its CD key
+/iso/
+
+# VM state & debug captures (large / machine-specific)
+/vm/
+*.qcow2
+*.iso
+*.pcap
+debug.log
+*.ppm
+*.png
+!docs/**/*.png
+
+# third-party sources are vendored on demand
+/third_party/*/
+
+# macOS
+.DS_Store
+
+# OMC tool state (session-specific)
+/.omc/
