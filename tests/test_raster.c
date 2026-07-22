@@ -1,9 +1,11 @@
 /* tests/test_raster.c — native (Mac clang + ASan/UBSan) unit tests for core/raster. */
 #include "../core/raster.h"
 #include "../core/font.h"
+#include "../core/json.h"
 #include "../img/qoi.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int g_fail = 0;
 static int g_checks = 0;
@@ -230,6 +232,55 @@ static void test_qoi(void) {
     surface_free(&d);
 }
 
+static void test_json(void) {
+    /* object: strings, ints, bool, null */
+    const char *s1 = "{\"id\":\"1789\",\"count\":42,\"ok\":true,\"x\":null}";
+    JsonValue *r = json_parse(s1, (int)strlen(s1));
+    CHECK(r != NULL);
+    CHECK(json_type(r) == JSON_OBJ);
+    CHECK(json_count(r) == 4);
+    CHECK(strcmp(json_get_str(r, "id"), "1789") == 0);
+    CHECK(json_get_int(r, "count", -1) == 42);
+    CHECK(json_bool(json_get(r, "ok"), 0) == 1);
+    CHECK(json_type(json_get(r, "x")) == JSON_NULL);
+    CHECK(json_get(r, "missing") == NULL);
+    json_free(r);
+
+    /* Graph-API-shaped: { data: [ {id, caption}, ... ] } */
+    const char *s2 = "{ \"data\": [ {\"id\":\"a\",\"caption\":\"hi\"}, {\"id\":\"b\"} ], "
+                     "\"paging\":{\"cursors\":{\"after\":\"XYZ\"}} }";
+    JsonValue *g = json_parse(s2, (int)strlen(s2));
+    CHECK(g != NULL);
+    const JsonValue *data = json_get(g, "data");
+    CHECK(json_type(data) == JSON_ARR);
+    CHECK(json_count(data) == 2);
+    CHECK(strcmp(json_get_str(json_at(data, 0), "id"), "a") == 0);
+    CHECK(strcmp(json_get_str(json_at(data, 0), "caption"), "hi") == 0);
+    CHECK(json_get_str(json_at(data, 1), "caption") == NULL); /* absent */
+    CHECK(strcmp(json_get_str(json_get(json_get(g, "paging"), "cursors"), "after"), "XYZ") == 0);
+    json_free(g);
+
+    /* escapes + \u -> UTF-8, negative + fractional numbers */
+    const char *s3 = "[\"a\\nb\\t\\\"\\u00e9\\uD83D\\uDE00\", -12, 3.5]";
+    JsonValue *a = json_parse(s3, (int)strlen(s3));
+    CHECK(a != NULL && json_count(a) == 3);
+    int sl = 0; const char *str = json_string(json_at(a, 0), &sl);
+    CHECK(str != NULL);
+    CHECK(str[0] == 'a' && str[1] == '\n' && str[2] == 'b' && str[3] == '\t' && str[4] == '"');
+    CHECK((unsigned char)str[5] == 0xC3 && (unsigned char)str[6] == 0xA9); /* é */
+    CHECK((unsigned char)str[7] == 0xF0);                                  /* 😀 4-byte */
+    CHECK(json_int(json_at(a, 1), 0) == -12);
+    CHECK(json_int(json_at(a, 2), 0) == 3); /* truncates fraction */
+    json_free(a);
+
+    /* error cases return NULL (and don't leak — ASan) */
+    CHECK(json_parse("{bad}", 5) == NULL);
+    CHECK(json_parse("[1,2", 4) == NULL);       /* unterminated */
+    CHECK(json_parse("{\"a\":1} junk", 12) == NULL); /* trailing garbage */
+    CHECK(json_parse("", 0) == NULL);
+    CHECK(json_parse("\"unterminated", 13) == NULL);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -241,6 +292,7 @@ int main(void) {
     test_downscale();
     test_font();
     test_qoi();
-    printf("raster+font+qoi tests: %d checks, %d failures\n", g_checks, g_fail);
+    test_json();
+    printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -53,6 +53,33 @@ void *memset(void *dst, int c, size_t n) {
     while (n--) *d++ = (unsigned char)c;
     return dst;
 }
+int memcmp(const void *a, const void *b, size_t n) {
+    const unsigned char *pa = a, *pb = b;
+    while (n--) { if (*pa != *pb) return *pa - *pb; pa++; pb++; }
+    return 0;
+}
+
+/* ---- string primitives (used by core/json, and later http/url) ---- */
+
+size_t strlen(const char *s) {
+    const char *p = s;
+    while (*p) p++;
+    return (size_t)(p - s);
+}
+int strcmp(const char *a, const char *b) {
+    while (*a && *a == *b) { a++; b++; }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+int strncmp(const char *a, const char *b, size_t n) {
+    while (n && *a && *a == *b) { a++; b++; n--; }
+    return n ? (unsigned char)*a - (unsigned char)*b : 0;
+}
+char *strchr(const char *s, int c) {
+    for (;; s++) {
+        if (*s == (char)c) return (char *)s;
+        if (!*s) return (void *)0;
+    }
+}
 
 /* ---- PE entry point (replaces the CRT's WinMainCRTStartup) ----
  * -nostdlib means no CRT startup runs, so we set up nothing beyond calling
