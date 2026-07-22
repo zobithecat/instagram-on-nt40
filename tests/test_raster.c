@@ -3,6 +3,7 @@
 #include "../core/font.h"
 #include "../core/json.h"
 #include "../core/http.h"
+#include "../core/model.h"
 #include "../img/qoi.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -340,6 +341,39 @@ static void test_http(void) {
     CHECK(http_parse_response("nonsense", 8, &bad) == -1);
 }
 
+static void test_model(void) {
+    /* a realistic Graph API /me/media response */
+    const char *j =
+        "{\"data\":["
+        "{\"id\":\"178\",\"username\":\"jun\",\"caption\":\"golden hour\","
+        "\"media_type\":\"IMAGE\",\"media_url\":\"https://cdn/1.jpg\","
+        "\"permalink\":\"https://ig/p/1\",\"timestamp\":\"2024-06-01T10:00:00+0000\"},"
+        "{\"id\":\"179\",\"username\":\"sky\",\"media_type\":\"VIDEO\","
+        "\"thumbnail_url\":\"https://cdn/2.jpg\"}"
+        "],\"paging\":{\"cursors\":{\"after\":\"CURSOR2\"}}}";
+    Feed *f = feed_from_graph_json(j, (int)strlen(j));
+    CHECK(f != NULL);
+    CHECK(f->count == 2);
+    CHECK(strcmp(f->posts[0].id, "178") == 0);
+    CHECK(strcmp(f->posts[0].username, "jun") == 0);
+    CHECK(strcmp(f->posts[0].caption, "golden hour") == 0);
+    CHECK(strcmp(f->posts[0].media_url, "https://cdn/1.jpg") == 0);
+    CHECK(f->posts[0].caption != NULL);
+    /* video: media_url absent -> falls back to thumbnail_url */
+    CHECK(strcmp(f->posts[1].media_url, "https://cdn/2.jpg") == 0);
+    CHECK(f->posts[1].caption == NULL); /* absent -> NULL */
+    CHECK(strcmp(f->next_cursor, "CURSOR2") == 0);
+    feed_free(f);
+
+    /* empty data + no paging */
+    Feed *e = feed_from_graph_json("{\"data\":[]}", 11);
+    CHECK(e != NULL && e->count == 0 && e->next_cursor == NULL);
+    feed_free(e);
+
+    /* malformed JSON -> NULL */
+    CHECK(feed_from_graph_json("{bad", 4) == NULL);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -353,6 +387,7 @@ int main(void) {
     test_qoi();
     test_json();
     test_http();
+    test_model();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
