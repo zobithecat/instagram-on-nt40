@@ -10,13 +10,21 @@
 
 #include "raster.h" /* Surface — resolved via -Icore */
 
-/* Called every frame with the framebuffer Surface aliasing the DIB section.
- * `user` is passed through from pal_run_window. Draw with core/raster. */
-typedef void (*pal_render_fn)(Surface *fb, void *user);
+/* Called every frame with the framebuffer Surface aliasing the DIB section and
+ * the current vertical scroll offset. `user` is passed through. Draw with
+ * core/raster. */
+typedef void (*pal_render_fn)(Surface *fb, int scroll_y, void *user);
 
-/* Create the main window, run the message loop, return the exit code.
- * The window starts at w x h client pixels and recomposites on resize/paint. */
-int pal_run_window(const char *title, int w, int h, pal_render_fn render, void *user);
+/* Returns the total scrollable content height (px) for a client width, so pal
+ * can size the scrollbar and clamp scrolling. `user` is passed through. */
+typedef int (*pal_height_fn)(int width, void *user);
+
+/* Create the main window (with a vertical scrollbar), run the message loop,
+ * return the exit code. Recomposites on resize/paint/scroll. `content_height`
+ * may be NULL for a non-scrolling window. `chrome_h` is the fixed, non-scrolling
+ * UI height (top+bottom bars) subtracted from the client to size the viewport. */
+int pal_run_window(const char *title, int w, int h, int chrome_h,
+                   pal_render_fn render, pal_height_fn content_height, void *user);
 
 /* Append a line to COM1 (QEMU -serial file:debug.log) for the Claude debug loop.
  * No-op-safe if COM1 can't be opened. printf-style. */

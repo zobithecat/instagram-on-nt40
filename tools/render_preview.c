@@ -42,9 +42,10 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 4; i++)
         if (load_qoi(paths[i], &photos[i]) == 0) imgs.photos[i] = &photos[i];
 
+    int scroll_y = argc > 4 ? atoi(argv[4]) : 0;
     Surface fb;
     if (surface_alloc(&fb, w, h) != 0) { fprintf(stderr, "alloc failed\n"); return 1; }
-    ui_feed_render(&fb, &imgs);
+    ui_feed_render(&fb, scroll_y, &imgs);
 
     FILE *f = fopen(out, "wb");
     if (!f) { perror("fopen"); surface_free(&fb); return 1; }

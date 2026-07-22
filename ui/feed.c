@@ -63,17 +63,27 @@ static const MockPost k_posts[] = {
 };
 #define N_POSTS ((int)(sizeof(k_posts) / sizeof(k_posts[0])))
 
+/* layout constants */
+#define BAR_H     30   /* fixed top app bar */
+#define NAV_H     28   /* fixed bottom nav bar */
+#define POST_PAD  8
+#define POST_GAP  6    /* vertical gap between cards (and above the first) */
+
+/* Height of one post card at content width w (matches draw_post's card.h). */
+static int post_card_height(int w) {
+    int photo_h = w - 2 * POST_PAD;
+    return 40 /*hdr*/ + photo_h + 26 /*act*/ + 36 /*cap*/ + POST_PAD;
+}
+
 /* Draw one feed post starting at top y; returns y after the post.
  * `photo` (or NULL) is the decoded post image; NULL uses the gradient. */
 static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const Surface *photo) {
-    int pad = 8;
-    Rect card = { x, y, w, 0 };
+    int pad = POST_PAD;
+    Rect card = { x, y, w, post_card_height(w) };
 
     int hdr_h   = 40;
     int photo_h = w - 2 * pad;      /* square-ish photo */
     int act_h   = 26;
-    int cap_h   = 36;
-    card.h = hdr_h + photo_h + act_h + cap_h + pad;
 
     panel_raised(s, card);
 
@@ -129,31 +139,54 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const S
     return y + card.h + 6;
 }
 
-void ui_feed_render(Surface *fb, void *user) {
+int ui_feed_content_height(int width, void *user) {
+    (void)user;
+    int w = width - 12; /* content column width (6px margin each side) */
+    return POST_GAP + N_POSTS * (post_card_height(w) + POST_GAP);
+}
+
+int ui_feed_chrome_height(void) { return BAR_H + NAV_H; }
+
+/* Render all posts into an offscreen `content` surface (full scroll height). */
+static void render_posts(Surface *content, const FeedImages *imgs) {
+    surface_fill(content, C_FACE);
+    int x = 6, w = content->w - 12, y = POST_GAP;
+    for (int i = 0; i < N_POSTS; i++) {
+        const Surface *photo = (imgs && i < 8) ? imgs->photos[i] : NULL;
+        y = draw_post(content, x, y, w, &k_posts[i], photo);
+    }
+}
+
+void ui_feed_render(Surface *fb, int scroll_y, void *user) {
     const FeedImages *imgs = (const FeedImages *)user;
     surface_fill(fb, C_FACE);
 
-    /* top app bar */
-    int bar_h = 30;
-    surface_fill_rect(fb, (Rect){ 0, 0, fb->w, bar_h }, C_IG_BLUE);
-    surface_hline(fb, 0, bar_h, fb->w, C_DARK);
-    /* wordmark */
-    font_draw_scaled(fb, 10, 8, "Instagram", C_WHITE, 2);
-    /* DM icon top-right */
-    surface_frame(fb, (Rect){ fb->w - 26, 8, 16, 14 }, C_WHITE);
+    /* scrollable posts region between the fixed bars */
+    int view_h = fb->h - BAR_H - NAV_H;
+    if (view_h > 0) {
+        int content_h = ui_feed_content_height(fb->w, NULL);
+        int maxscroll = content_h - view_h;
+        if (maxscroll < 0) maxscroll = 0;
+        if (scroll_y < 0) scroll_y = 0;
+        if (scroll_y > maxscroll) scroll_y = maxscroll;
 
-    /* posts, left margin */
-    int x = 6, w = fb->w - 12;
-    int y = bar_h + 6;
-    for (int i = 0; i < N_POSTS; i++) {
-        if (y > fb->h) break;
-        const Surface *photo = (imgs && i < 8) ? imgs->photos[i] : NULL;
-        y = draw_post(fb, x, y, w, &k_posts[i], photo);
+        Surface content;
+        if (surface_alloc(&content, fb->w, content_h > 0 ? content_h : 1) == 0) {
+            render_posts(&content, imgs);
+            Rect src = { 0, scroll_y, fb->w, view_h };
+            surface_blit(fb, 0, BAR_H, &content, &src); /* clips to the viewport */
+            surface_free(&content);
+        }
     }
 
-    /* bottom nav bar */
-    int nav_h = 28;
-    Rect nav = { 0, fb->h - nav_h, fb->w, nav_h };
+    /* fixed top app bar (drawn over the posts) */
+    surface_fill_rect(fb, (Rect){ 0, 0, fb->w, BAR_H }, C_IG_BLUE);
+    surface_hline(fb, 0, BAR_H, fb->w, C_DARK);
+    font_draw_scaled(fb, 10, 8, "Instagram", C_WHITE, 2);
+    surface_frame(fb, (Rect){ fb->w - 26, 8, 16, 14 }, C_WHITE); /* DM icon */
+
+    /* fixed bottom nav bar */
+    Rect nav = { 0, fb->h - NAV_H, fb->w, NAV_H };
     surface_fill_rect(fb, nav, C_FACE);
     surface_hline(fb, 0, nav.y, fb->w, C_HILIGHT);
     surface_hline(fb, 0, nav.y + 1, fb->w, C_SHADOW);

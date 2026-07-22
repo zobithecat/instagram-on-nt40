@@ -31,7 +31,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
     (void)inst; (void)prev; (void)cmd; (void)show;
     pal_log("=== instagram-on-nt40 boot ===");
     load_photos();
-    int rc = pal_run_window("Instagram", 340, 600, ui_feed_render, &g_imgs);
+    int rc = pal_run_window("Instagram", 340, 600, ui_feed_chrome_height(),
+                            ui_feed_render, ui_feed_content_height, &g_imgs);
     pal_log("=== exit %d ===", rc);
     return rc;
 }

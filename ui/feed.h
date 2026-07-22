@@ -12,8 +12,17 @@ typedef struct {
     const Surface *photos[8];
 } FeedImages;
 
-/* pal_render_fn-compatible: draws the whole feed. `user` is a FeedImages* or
- * NULL (all-gradient). */
-void ui_feed_render(Surface *fb, void *user);
+/* Draw the feed: a fixed top app bar, the scrollable posts region offset by
+ * `scroll_y` (clamped internally), and a fixed bottom nav bar. `user` is a
+ * FeedImages* or NULL (all-gradient). pal_render_fn-compatible. */
+void ui_feed_render(Surface *fb, int scroll_y, void *user);
+
+/* Total pixel height of the scrollable posts content at the given window width
+ * (excludes the fixed app/nav bars). pal_height_fn-compatible; `user` unused. */
+int ui_feed_content_height(int width, void *user);
+
+/* Combined height of the fixed, non-scrolling chrome (top app bar + bottom nav);
+ * pal subtracts this from the client height to size the scroll viewport. */
+int ui_feed_chrome_height(void);
 
 #endif /* UI_FEED_H */

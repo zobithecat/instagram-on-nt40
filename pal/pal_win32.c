@@ -12,11 +12,14 @@
 
 typedef struct {
     pal_render_fn render;
+    pal_height_fn content_height;
     void         *user;
     HBITMAP       dib;      /* DIB section = compositor backbuffer */
     HDC           mem_dc;   /* memory DC holding the DIB */
     Surface       fb;       /* aliases the DIB's pixels (top-down) */
     int           w, h;
+    int           chrome_h; /* fixed top+bottom UI height (non-scrolling) */
+    int           scroll_y; /* current vertical scroll offset (px) */
 } PalWindow;
 
 /* ---- COM1 debug logging ---------------------------------------------------*/
@@ -104,11 +107,53 @@ static int create_backbuffer(PalWindow *pw, HDC wdc, int w, int h) {
 
 static void paint(PalWindow *pw, HWND hwnd) {
     if (!pw->fb.pixels) return;
-    if (pw->render) pw->render(&pw->fb, pw->user);
+    if (pw->render) pw->render(&pw->fb, pw->scroll_y, pw->user);
     PAINTSTRUCT ps;
     HDC dc = BeginPaint(hwnd, &ps);
     BitBlt(dc, 0, 0, pw->w, pw->h, pw->mem_dc, 0, 0, SRCCOPY);
     EndPaint(hwnd, &ps);
+}
+
+/* Max scroll offset for the current client size (0 if nothing to scroll). */
+static int max_scroll(PalWindow *pw) {
+    if (!pw->content_height) return 0;
+    int content = pw->content_height(pw->w, pw->user);
+    int view = pw->h - pw->chrome_h;
+    if (view < 0) view = 0;
+    int m = content - view;
+    return m > 0 ? m : 0;
+}
+
+/* Sync the OS scrollbar range/thumb to the content and clamp scroll_y. */
+static void sync_scrollbar(PalWindow *pw, HWND hwnd) {
+    if (!pw->content_height) return;
+    int content = pw->content_height(pw->w, pw->user);
+    int view = pw->h - pw->chrome_h;
+    if (view < 1) view = 1;
+    int m = max_scroll(pw);
+    if (pw->scroll_y > m) pw->scroll_y = m;
+    if (pw->scroll_y < 0) pw->scroll_y = 0;
+    SCROLLINFO si;
+    ZeroMemory(&si, sizeof(si));
+    si.cbSize = sizeof(si);
+    si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin   = 0;
+    si.nMax   = content > 0 ? content - 1 : 0;
+    si.nPage  = (UINT)view;
+    si.nPos   = pw->scroll_y;
+    SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+}
+
+/* Scroll by `delta` px, clamp, update the scrollbar, and repaint if moved. */
+static void scroll_by(PalWindow *pw, HWND hwnd, int delta) {
+    int m = max_scroll(pw);
+    int ny = pw->scroll_y + delta;
+    if (ny > m) ny = m;
+    if (ny < 0) ny = 0;
+    if (ny == pw->scroll_y) return;
+    pw->scroll_y = ny;
+    SetScrollPos(hwnd, SB_VERT, ny, TRUE);
+    InvalidateRect(hwnd, NULL, FALSE);
 }
 
 /* ---- window / message loop -----------------------------------------------*/
@@ -124,6 +169,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         HDC wdc = GetDC(hwnd);
         create_backbuffer(pw, wdc, rc.right - rc.left, rc.bottom - rc.top);
         ReleaseDC(hwnd, wdc);
+        sync_scrollbar(pw, hwnd);
         return 0;
     }
     case WM_SIZE:
@@ -131,8 +177,54 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HDC wdc = GetDC(hwnd);
             create_backbuffer(pw, wdc, LOWORD(lp), HIWORD(lp));
             ReleaseDC(hwnd, wdc);
+            sync_scrollbar(pw, hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
         }
+        return 0;
+    case WM_VSCROLL:
+        if (pw) {
+            int m = max_scroll(pw);
+            int page = pw->h - pw->chrome_h - 20; if (page < 40) page = 40;
+            int y = pw->scroll_y;
+            switch (LOWORD(wp)) {
+            case SB_LINEUP:   y -= 40; break;
+            case SB_LINEDOWN: y += 40; break;
+            case SB_PAGEUP:   y -= page; break;
+            case SB_PAGEDOWN: y += page; break;
+            case SB_TOP:      y = 0; break;
+            case SB_BOTTOM:   y = m; break;
+            case SB_THUMBTRACK:
+            case SB_THUMBPOSITION: {
+                SCROLLINFO si; ZeroMemory(&si, sizeof(si));
+                si.cbSize = sizeof(si); si.fMask = SIF_TRACKPOS;
+                GetScrollInfo(hwnd, SB_VERT, &si);
+                y = si.nTrackPos;
+                break; }
+            }
+            if (y > m) y = m;
+            if (y < 0) y = 0;
+            if (y != pw->scroll_y) {
+                pw->scroll_y = y;
+                SetScrollPos(hwnd, SB_VERT, y, TRUE);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        return 0;
+    case WM_KEYDOWN:
+        if (pw) {
+            int page = pw->h - pw->chrome_h - 20; if (page < 40) page = 40;
+            switch (wp) {
+            case VK_UP:    scroll_by(pw, hwnd, -40);      break;
+            case VK_DOWN:  scroll_by(pw, hwnd, 40);       break;
+            case VK_PRIOR: scroll_by(pw, hwnd, -page);    break;
+            case VK_NEXT:  scroll_by(pw, hwnd, page);     break;
+            case VK_HOME:  scroll_by(pw, hwnd, -(1 << 30)); break;
+            case VK_END:   scroll_by(pw, hwnd, 1 << 30);    break;
+            }
+        }
+        return 0;
+    case WM_MOUSEWHEEL: /* NT4 SP3+ / IntelliMouse; harmless if never sent */
+        if (pw) scroll_by(pw, hwnd, -((short)HIWORD(wp) / WHEEL_DELTA) * 48);
         return 0;
     case WM_ERASEBKGND:
         return 1; /* backbuffer covers the whole client; skip flicker */
@@ -147,11 +239,14 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-int pal_run_window(const char *title, int w, int h, pal_render_fn render, void *user) {
+int pal_run_window(const char *title, int w, int h, int chrome_h,
+                   pal_render_fn render, pal_height_fn content_height, void *user) {
     static PalWindow pw;
     ZeroMemory(&pw, sizeof(pw));
-    pw.render = render;
-    pw.user   = user;
+    pw.render         = render;
+    pw.content_height = content_height;
+    pw.chrome_h       = chrome_h;
+    pw.user           = user;
 
     HINSTANCE inst = GetModuleHandle(NULL);
     WNDCLASSA wc;
@@ -165,7 +260,7 @@ int pal_run_window(const char *title, int w, int h, pal_render_fn render, void *
 
     /* size the window so the *client* area is w x h */
     RECT r = { 0, 0, w, h };
-    DWORD style = WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX;
+    DWORD style = (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX) | WS_VSCROLL;
     AdjustWindowRect(&r, style, FALSE);
     HWND hwnd = CreateWindowA("IgNt4Main", title, style,
                               CW_USEDEFAULT, CW_USEDEFAULT,
