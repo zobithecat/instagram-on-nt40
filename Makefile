@@ -47,7 +47,21 @@ NET_INC    = -Icore -Ipal -Inet
 NET_LIBS   = -lwsock32 -luser32 -lkernel32 $(LIBGCC)
 NET_EXE    = dist/nettest.exe
 
-.PHONY: test nt4 nettest preview clean run-vm
+# mbedTLS 2.28 LTS, vendored (gitignored) under third_party/, cross-compiled as
+# a static lib with our own minimal config (net/mbedtls_config_nt4.h) + platform
+# glue (net/mbedtls_platform_nt4.c: time/gmtime_r/snprintf — everything else
+# mbedTLS needs, calloc/free/mem*/str*, already lives in pal/nt4_crt.c). A
+# static lib needs no entry point / -nostdlib — that's only an EXE link concern
+# — so it compiles with plain freestanding+i486 flags, no NT4LDFLAGS.
+MBEDTLS_DIR  = third_party/mbedtls
+MBEDTLS_SRC  = $(wildcard $(MBEDTLS_DIR)/library/*.c)
+MBEDTLS_OBJD = build/mbedtls_obj
+MBEDTLS_OBJ  = $(patsubst $(MBEDTLS_DIR)/library/%.c,$(MBEDTLS_OBJD)/%.o,$(MBEDTLS_SRC))
+MBEDTLS_INC  = -I$(MBEDTLS_DIR)/include -Inet
+MBEDTLS_DEFS = -DMBEDTLS_CONFIG_FILE='"mbedtls_config_nt4.h"'
+MBEDTLS_LIB  = build/libmbedtls_nt4.a
+
+.PHONY: test nt4 nettest mbedtls preview clean run-vm
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
@@ -76,6 +90,18 @@ nettest: | dist
 	  $(NT4LDFLAGS) $(NET_LIBS)
 	@echo "built $(NET_EXE):"; \
 	  i686-w64-mingw32-size $(NET_EXE) 2>/dev/null || ls -l $(NET_EXE)
+
+mbedtls: $(MBEDTLS_LIB)
+
+$(MBEDTLS_LIB): $(MBEDTLS_OBJ)
+	i686-w64-mingw32-ar rcs $@ $(MBEDTLS_OBJ)
+	@echo "built $@:"; ls -l $@
+
+$(MBEDTLS_OBJD)/%.o: $(MBEDTLS_DIR)/library/%.c | $(MBEDTLS_OBJD)
+	$(XCC) -c $< -o $@ $(NT4DEFS) $(NT4WARN) $(MBEDTLS_DEFS) $(MBEDTLS_INC)
+
+$(MBEDTLS_OBJD):
+	@mkdir -p $(MBEDTLS_OBJD)
 
 build:
 	@mkdir -p build
