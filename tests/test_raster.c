@@ -1,5 +1,6 @@
 /* tests/test_raster.c — native (Mac clang + ASan/UBSan) unit tests for core/raster. */
 #include "../core/raster.h"
+#include "../core/font.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -159,6 +160,38 @@ static void test_downscale(void) {
     surface_free(&dst); surface_free(&src); surface_free(&s1); surface_free(&s2);
 }
 
+static void test_font(void) {
+    /* width math: n glyphs -> (n-1)*ADV + W */
+    CHECK(font_text_width("", 1) == 0);
+    CHECK(font_text_width("A", 1) == FONT_W);
+    CHECK(font_text_width("AB", 1) == FONT_ADV + FONT_W);
+    CHECK(font_text_width("A", 2) == FONT_W * 2);
+
+    Surface s;
+    surface_alloc(&s, 12, 10);
+    surface_fill(&s, 0); /* transparent bg so untouched pixels read back as 0 */
+    /* '_' is a single filled bottom row (row 6, all 5 cols) */
+    font_draw(&s, 0, 0, "_", ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 0, 6), ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 4, 6), ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 2, 0), 0); /* top row untouched */
+    CHECK_EQ(at(&s, 5, 6), 0); /* past glyph width */
+
+    /* '|' is column 2 for rows 0..6 */
+    surface_fill(&s, 0);
+    font_draw(&s, 0, 0, "|", ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 2, 0), ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 2, 6), ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 0, 0), 0);
+
+    /* space draws nothing; out-of-range chars don't crash (ASan guards) */
+    surface_fill(&s, 0);
+    font_draw(&s, 0, 0, " ", ras_rgb(255, 255, 255));
+    CHECK_EQ(at(&s, 2, 3), 0);
+    font_draw(&s, 8, 3, "Xy!\x01\x80", ras_rgb(255, 255, 255)); /* clips at edge, skips bad */
+    surface_free(&s);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -168,6 +201,7 @@ int main(void) {
     test_blit();
     test_blit_alpha();
     test_downscale();
-    printf("raster tests: %d checks, %d failures\n", g_checks, g_fail);
+    test_font();
+    printf("raster+font tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

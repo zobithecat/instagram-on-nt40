@@ -41,7 +41,7 @@ APP_EXE    = dist/app.exe
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
-	$(CC) -std=c11 -O2 -Wall core/raster.c ui/feed.c tools/render_preview.c \
+	$(CC) -std=c11 -O2 -Wall $(CORE_SRC) ui/feed.c tools/render_preview.c \
 	  -Icore -Iui -o build/preview
 	./build/preview build/feed.ppm 340 600
 	@magick build/feed.ppm build/feed.png 2>/dev/null && echo "wrote build/feed.png" \

@@ -2,6 +2,7 @@
  * Hardcoded mock posts for milestone 2's "money screenshot". Real data, decoded
  * photos, and text (bitmap font) arrive in later milestones. */
 #include "feed.h"
+#include "font.h"
 
 /* Classic Win 3D system palette */
 #define C_FACE       ras_rgb(192, 192, 192)
@@ -11,6 +12,7 @@
 #define C_DARK       ras_rgb(64, 64, 64)
 #define C_WHITE      ras_rgb(255, 255, 255)
 #define C_INK        ras_rgb(80, 80, 80)
+#define C_TEXT       ras_rgb(20, 20, 20)   /* strong body text */
 #define C_IG_BLUE    ras_rgb(0, 60, 128)
 
 /* A 2px raised panel (Windows "button edge" look). */
@@ -39,22 +41,25 @@ static void gradient_v(Surface *s, Rect r, uint32_t top, uint32_t bot) {
     }
 }
 
-/* A placeholder "text" bar: a sunken light strip with a dark ink line. */
-static void text_bar(Surface *s, int x, int y, int w, int h, uint32_t ink) {
-    surface_fill_rect(s, (Rect){ x, y, w, h }, ink);
-}
-
 typedef struct {
     uint32_t grad_top, grad_bot; /* fake-photo colors */
-    int name_w;                  /* username placeholder width */
+    const char *user, *loc, *likes, *caption, *comments;
     int liked;                   /* heart filled? */
 } MockPost;
 
 static const MockPost k_posts[] = {
-    { RAS_RGB(255, 180, 90),  RAS_RGB(200, 60, 120), 70,  1 }, /* sunset */
-    { RAS_RGB(120, 200, 255), RAS_RGB(20, 80, 160),  54,  0 }, /* sky */
-    { RAS_RGB(160, 220, 160), RAS_RGB(30, 110, 60),  88,  1 }, /* forest */
-    { RAS_RGB(230, 230, 235), RAS_RGB(120, 120, 140), 60, 0 }, /* city */
+    { RAS_RGB(255, 180, 90),  RAS_RGB(200, 60, 120),
+      "jun.photo",  "Busan, Korea", "1,204 likes",
+      "golden hour never gets old", "View all 48 comments", 1 },
+    { RAS_RGB(120, 200, 255), RAS_RGB(20, 80, 160),
+      "skywatch",   "Jeju Island",  "892 likes",
+      "endless blue", "View all 12 comments", 0 },
+    { RAS_RGB(160, 220, 160), RAS_RGB(30, 110, 60),
+      "greentrail", "Seoraksan",    "2,317 likes",
+      "morning hike before the crowds", "View all 73 comments", 1 },
+    { RAS_RGB(230, 230, 235), RAS_RGB(120, 120, 140),
+      "citypulse",  "Seoul",        "560 likes",
+      "concrete jungle at night", "View all 9 comments", 0 },
 };
 #define N_POSTS ((int)(sizeof(k_posts) / sizeof(k_posts[0])))
 
@@ -66,7 +71,7 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
     int hdr_h   = 40;
     int photo_h = w - 2 * pad;      /* square-ish photo */
     int act_h   = 26;
-    int cap_h   = 30;
+    int cap_h   = 36;
     card.h = hdr_h + photo_h + act_h + cap_h + pad;
 
     panel_raised(s, card);
@@ -78,8 +83,8 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
     Rect avatar = { cx, cy, 24, 24 };
     panel_sunken(s, avatar);
     gradient_v(s, (Rect){ avatar.x + 2, avatar.y + 2, 20, 20 }, p->grad_top, p->grad_bot);
-    text_bar(s, cx + 32, cy + 6, p->name_w, 6, C_INK);       /* username */
-    text_bar(s, cx + 32, cy + 15, p->name_w - 18, 4, C_SHADOW); /* location */
+    font_draw(s, cx + 32, cy + 3, p->user, C_TEXT);          /* username */
+    font_draw(s, cx + 32, cy + 13, p->loc, C_SHADOW);        /* location */
     /* three-dot menu */
     for (int i = 0; i < 3; i++)
         surface_fill_rect(s, (Rect){ cx + cw - 4 - i * 6, cy + 10, 3, 3 }, C_INK);
@@ -105,10 +110,11 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
 
     cy += act_h;
 
-    /* caption: a couple of ink lines */
-    text_bar(s, cx, cy, 40, 5, C_INK);            /* likes count */
-    text_bar(s, cx, cy + 9, cw - 20, 4, C_SHADOW);
-    text_bar(s, cx, cy + 16, cw - 60, 4, C_SHADOW);
+    /* caption: likes, "user caption", comments link */
+    font_draw(s, cx, cy, p->likes, C_TEXT);
+    font_draw(s, cx, cy + 11, p->user, C_TEXT);
+    font_draw(s, cx + font_text_width(p->user, 1) + 4, cy + 11, p->caption, C_INK);
+    font_draw(s, cx, cy + 22, p->comments, C_SHADOW);
 
     return y + card.h + 6;
 }
@@ -121,8 +127,8 @@ void ui_feed_render(Surface *fb, void *user) {
     int bar_h = 30;
     surface_fill_rect(fb, (Rect){ 0, 0, fb->w, bar_h }, C_IG_BLUE);
     surface_hline(fb, 0, bar_h, fb->w, C_DARK);
-    /* wordmark placeholder (script-ish blocks) */
-    text_bar(fb, 10, 10, 96, 10, C_WHITE);
+    /* wordmark */
+    font_draw_scaled(fb, 10, 8, "Instagram", C_WHITE, 2);
     /* DM icon top-right */
     surface_frame(fb, (Rect){ fb->w - 26, 8, 16, 14 }, C_WHITE);
 
