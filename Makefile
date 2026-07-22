@@ -35,10 +35,19 @@ NT4LDFLAGS = -nostdlib -Wl,-e,_mainCRTStartup -Wl,--subsystem,windows \
              -Wl,--major-os-version=4,--minor-os-version=0
 APP_SRC    = $(wildcard core/*.c) $(wildcard img/*.c) $(wildcard pal/*.c) $(wildcard ui/*.c)
 APP_INC    = -Icore -Iimg -Ipal -Iui
-APP_LIBS   = -lgdi32 -lcomctl32 -ladvapi32 -luser32 -lkernel32 $(LIBGCC)
+APP_LIBS   = -lgdi32 -lcomctl32 -ladvapi32 -luser32 -lkernel32 -lwsock32 $(LIBGCC)
 APP_EXE    = dist/app.exe
 
-.PHONY: test nt4 preview clean run-vm
+# milestone-4 bring-up: sockets + http + json + model against a plain-HTTP mock
+# server (tools/mock_graph_server.py), no window -> no gdi32/comctl32 import.
+NET_SRC    = core/json.c core/http.c core/model.c \
+             pal/nt4_crt.c pal/pal_common_win32.c pal/net_win32.c \
+             net/nettest_main.c
+NET_INC    = -Icore -Ipal -Inet
+NET_LIBS   = -lwsock32 -luser32 -lkernel32 $(LIBGCC)
+NET_EXE    = dist/nettest.exe
+
+.PHONY: test nt4 nettest preview clean run-vm
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
@@ -60,6 +69,13 @@ nt4: | dist
 	  $(NT4LDFLAGS) $(APP_LIBS)
 	@echo "built $(APP_EXE):"; \
 	  i686-w64-mingw32-size $(APP_EXE) 2>/dev/null || ls -l $(APP_EXE)
+
+nettest: | dist
+	$(XCC) $(NET_SRC) -o $(NET_EXE) \
+	  $(NT4DEFS) $(NT4WARN) $(NET_INC) \
+	  $(NT4LDFLAGS) $(NET_LIBS)
+	@echo "built $(NET_EXE):"; \
+	  i686-w64-mingw32-size $(NET_EXE) 2>/dev/null || ls -l $(NET_EXE)
 
 build:
 	@mkdir -p build

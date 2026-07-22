@@ -94,7 +94,11 @@ PY
 - [x] **게스트 네트워킹**: AMD PCnet + TCP/IP + DHCP 전부 NT4에서 확인됨
       (`ipconfig`: 10.0.2.15/24 gw 10.0.2.2). `ping 10.0.2.2`, `ping 8.8.8.8` 둘 다 성공
       — QEMU NAT로 **실제 인터넷 도달 가능** 확인 (`docs/screenshots/nt4-networking-ping-internet.png`)
-- [ ] **마일스톤 4** — `pal` Winsock(1.1/wsock32, NT4 네이티브) 소켓, 로컬 목서버로 먼저 검증
+- [x] **마일스톤 4 — 소켓**: `pal/net`(Winsock 1.1/`wsock32`, NT4 네이티브 — `ws2_32`
+      불필요). `dist/nettest.exe`가 NT4에서 소켓 connect → HTTP 요청 → 응답 파싱 →
+      JSON → Feed 매핑까지 전 과정 실행, 호스트의 `tools/mock_graph_server.py`
+      (평문 HTTP, `10.0.2.2:8080`)와 왕복 성공. exe는 kernel32/user32/wsock32만
+      임포트(gdi32 없음 — `pal_common_win32.c`로 로그·파일함수 분리)
 - [ ] **마일스톤 5** — mbedTLS 크로스빌드 (TLS 1.2 + SNI), `graph.instagram.com` HTTPS 연결
 - [ ] **마일스톤 6** — Graph API 로그인(토큰) 화면 + 실 피드/이미지 fetch → **모놀리딕 최종 빌드**
 
