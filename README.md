@@ -107,7 +107,11 @@ PY
       (`tools/mock_graph_server_tls.py`)에 접속, HTTP→JSON→모델 전체 파이프라인이
       TLS 위에서 정상 동작 (포스트 2개 정확히 파싱). `dist/tlstest.exe`(222KB, mbedTLS
       풀스택 포함)는 advapi32/kernel32/user32/wsock32만 임포트, **CMOV 0개**.
-      남은 일: 진짜 `graph.instagram.com` 루트 CA 확인 + 연결
+      🌟 **스트레치 골 달성**: 진짜 `graph.instagram.com:443`과 실제 TLS 1.2 핸드셰이크
+      성공 (`DigiCert Global Root G2` 임베드, `openssl s_client`로 확인 + macOS 신뢰
+      저장소 지문 대조). 토큰 없이도 Meta의 **진짜 Graph API가 정상 파싱된 에러 JSON**
+      (`Invalid OAuth 2.0 Access Token`, code 190)으로 응답 — DNS·소켓·TLS·HTTP
+      전 스택이 실제 프로덕션 엔드포인트와 완전히 왕복함을 증명
 - [ ] **마일스톤 6** — Graph API 로그인(토큰) 화면 + 실 피드/이미지 fetch → **모놀리딕 최종 빌드**
 
 ### 🎯 최종 목표 (북극성)
