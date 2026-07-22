@@ -87,7 +87,12 @@ PY
 - [x] **마일스톤 3.1 — 스크롤 피드**: WS_VSCROLL 실제 OS 스크롤바 + 키보드
       (화살표/PageUp·Down/Home·End) + 마우스휠. 고정 앱바·네비 사이에서 포스트 스크롤.
       NT4에서 검증
-- [ ] **마일스톤 3.2** — 동일 디코드 API 뒤에 진짜 JPEG 디코더
+- [x] **마일스톤 3.2 — 진짜 JPEG 디코드**: `img/jpeg`가 벤더링한 `stb_image.h`를
+      JPEG 전용·freestanding으로 설정(`STBI_ONLY_JPEG`+`STBI_NO_LINEAR`로
+      math.h 의존성 완전 제거, `malloc`/`free`는 이름이 같아 오버라이드 불필요,
+      `STBI_NO_THREAD_LOCALS`로 `__emutls_get_address` 링크 에러 해결). QOI와
+      동일한 API라 `core/model_private`가 뽑아낸 사진·영상커버 URL을 그대로 디코드
+      가능. 141 checks, NT4에서도 CMOV 0개로 클린 빌드
 - [x] **네트워킹 순수 코어**: `core/json`(재귀하강 JSON DOM, \uXXXX→UTF-8), `core/http`
       (요청 빌더 + Content-Length/chunked 응답 파서), `core/model`(Graph API 미디어
       JSON → Feed/Post) — 전부 Mac에서 ASan 테스트 (112 checks), VM 불필요
