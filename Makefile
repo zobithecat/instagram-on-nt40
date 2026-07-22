@@ -61,7 +61,20 @@ MBEDTLS_INC  = -I$(MBEDTLS_DIR)/include -Inet
 MBEDTLS_DEFS = -DMBEDTLS_CONFIG_FILE='"mbedtls_config_nt4.h"'
 MBEDTLS_LIB  = build/libmbedtls_nt4.a
 
-.PHONY: test nt4 nettest mbedtls preview clean run-vm
+# milestone-5 bring-up: full stack over real TLS 1.2 (handshake + X.509 verify)
+# against a self-signed HTTPS mock (tools/mock_graph_server_tls.py).
+TLS_SRC    = core/json.c core/http.c core/model.c \
+             pal/nt4_crt.c pal/pal_common_win32.c pal/net_win32.c \
+             net/mbedtls_platform_nt4.c net/tlstest_main.c
+TLS_INC    = -Icore -Ipal -Inet $(MBEDTLS_INC)
+TLS_DEFS   = $(MBEDTLS_DEFS)
+# library order matters to the linker: static archives are only searched for
+# symbols needed by what came *before* them, so our lib needing advapi32/wsock32
+# symbols must precede those import libs.
+TLS_LIBS   = $(MBEDTLS_LIB) -lwsock32 -ladvapi32 -luser32 -lkernel32 $(LIBGCC)
+TLS_EXE    = dist/tlstest.exe
+
+.PHONY: test nt4 nettest mbedtls tlstest preview clean run-vm
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
@@ -90,6 +103,13 @@ nettest: | dist
 	  $(NT4LDFLAGS) $(NET_LIBS)
 	@echo "built $(NET_EXE):"; \
 	  i686-w64-mingw32-size $(NET_EXE) 2>/dev/null || ls -l $(NET_EXE)
+
+tlstest: $(MBEDTLS_LIB) | dist
+	$(XCC) $(TLS_SRC) -o $(TLS_EXE) \
+	  $(NT4DEFS) $(NT4WARN) $(TLS_DEFS) $(TLS_INC) \
+	  $(NT4LDFLAGS) $(TLS_LIBS)
+	@echo "built $(TLS_EXE):"; \
+	  i686-w64-mingw32-size $(TLS_EXE) 2>/dev/null || ls -l $(TLS_EXE)
 
 mbedtls: $(MBEDTLS_LIB)
 

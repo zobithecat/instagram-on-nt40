@@ -1,5 +1,5 @@
 /* net/mbedtls_platform_nt4.c — the platform glue mbedTLS needs beyond what
- * pal/nt4_crt.c already provides (calloc/free/mem*/str*), per the config
+ * pal/nt4_crt.c already provides (calloc, free, the mem-family, the str-family), per the config
  * decisions documented in mbedtls_config_nt4.h:
  *
  *   - time()                     : GetSystemTimeAsFileTime, no CRT involved.
@@ -7,7 +7,8 @@
  *     civil_from_days), no OS call, so it works identically on any platform.
  *   - mbedtls_nt4_{v,}snprintf() : a small C99-semantics snprintf covering
  *     exactly the conversions the compiled-in library files use (verified by
- *     grepping third_party/mbedtls/library/*.c: %s %c %d %u %x %X %lu with
+ *     grepping every library/ source file for its format strings: %s %c %d
+ *     %u %x %X %lu with
  *     optional zero/space-padded width — no floats, no %p; those only occur
  *     in debug.c/error.c/self-test code we don't compile).
  *
