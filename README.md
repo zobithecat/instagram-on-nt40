@@ -99,13 +99,15 @@ PY
       JSON → Feed 매핑까지 전 과정 실행, 호스트의 `tools/mock_graph_server.py`
       (평문 HTTP, `10.0.2.2:8080`)와 왕복 성공. exe는 kernel32/user32/wsock32만
       임포트(gdi32 없음 — `pal_common_win32.c`로 로그·파일함수 분리)
-- [~] **마일스톤 5 — mbedTLS**: v2.28.10 벤더링, **전체 라이브러리(96개 파일)가 freestanding
-      i486 NT4 타겟으로 클린 컴파일** (`build/libmbedtls_nt4.a`, 357KB, **CMOV 0개**).
-      `net/mbedtls_config_nt4.h`(TLS 1.2 클라이언트 전용 커스텀 설정) +
-      `net/mbedtls_platform_nt4.c`(time/gmtime_r/snprintf glue — 엔트로피는
-      mbedTLS 자체 Win32 CryptoAPI 소스가 그대로 동작, 별도 glue 불필요).
-      남은 일: BIO 연결(`pal` 소켓 ↔ mbedtls_ssl), 실제 핸드셰이크 테스트,
-      `graph.instagram.com` HTTPS 연결
+- [x] **마일스톤 5 — mbedTLS, 실제 TLS 1.2 핸드셰이크**: v2.28.10 벤더링, 전체 라이브러리
+      (96개 파일)가 freestanding i486 NT4 타겟으로 클린 컴파일 (`build/libmbedtls_nt4.a`,
+      357KB). `net/tlstest_main.c`가 `pal` 소켓을 mbedTLS BIO에 연결해 **실제
+      X.509 체인 검증까지 포함한(스킵 아님)** TLS 1.2 핸드셰이크를 NT4 실물에서 성공 —
+      `TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384`로 셀프사인 HTTPS mock
+      (`tools/mock_graph_server_tls.py`)에 접속, HTTP→JSON→모델 전체 파이프라인이
+      TLS 위에서 정상 동작 (포스트 2개 정확히 파싱). `dist/tlstest.exe`(222KB, mbedTLS
+      풀스택 포함)는 advapi32/kernel32/user32/wsock32만 임포트, **CMOV 0개**.
+      남은 일: 진짜 `graph.instagram.com` 루트 CA 확인 + 연결
 - [ ] **마일스톤 6** — Graph API 로그인(토큰) 화면 + 실 피드/이미지 fetch → **모놀리딕 최종 빌드**
 
 ### 🎯 최종 목표 (북극성)
