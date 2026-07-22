@@ -4,6 +4,7 @@
 #include "../core/json.h"
 #include "../core/http.h"
 #include "../core/model.h"
+#include "../core/model_private.h"
 #include "../img/qoi.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -374,6 +375,70 @@ static void test_model(void) {
     CHECK(feed_from_graph_json("{bad", 4) == NULL);
 }
 
+static void test_model_private(void) {
+    /* Structurally mirrors a REAL captured instagrapi feed/timeline/ response
+     * (schema confirmed empirically, not guessed) but with synthetic content —
+     * we don't commit real third-party usernames/captions to the test suite.
+     * Covers: single photo, carousel (album), video (cover-only), an ad item
+     * with no renderable media, and a non-post item lacking media_or_ad
+     * entirely (e.g. an explore-tray injection) that must be skipped. */
+    const char *j =
+        "{\"feed_items\":["
+        /* [0] plain photo */
+        "{\"media_or_ad\":{\"user\":{\"username\":\"jun.photo\"},"
+        "\"caption\":{\"text\":\"golden hour\"},\"like_count\":1204,"
+        "\"media_type\":1,\"image_versions2\":{\"candidates\":["
+        "{\"url\":\"https://cdn/sunset.jpg\",\"width\":1080,\"height\":1350}]}}},"
+        /* [1] carousel/album: 2 slides, each with its own image_versions2 */
+        "{\"media_or_ad\":{\"user\":{\"username\":\"skywatch\"},"
+        "\"caption\":null,\"like_count\":50,\"media_type\":8,"
+        "\"image_versions2\":{\"candidates\":[{\"url\":\"https://cdn/cover.jpg\"}]},"
+        "\"carousel_media\":["
+        "{\"media_type\":1,\"image_versions2\":{\"candidates\":[{\"url\":\"https://cdn/slide1.jpg\"}]}},"
+        "{\"media_type\":1,\"image_versions2\":{\"candidates\":[{\"url\":\"https://cdn/slide2.jpg\"}]}}"
+        "]}},"
+        /* [2] video: media_type=2, has a cover image but no carousel */
+        "{\"media_or_ad\":{\"user\":{\"username\":\"greentrail\"},"
+        "\"caption\":{\"text\":\"hike\"},\"like_count\":9,\"media_type\":2,"
+        "\"image_versions2\":{\"candidates\":[{\"url\":\"https://cdn/vidcover.jpg\"}]}}},"
+        /* [3] ad with no renderable media at all -- image_url must end up NULL */
+        "{\"media_or_ad\":{\"user\":{\"username\":\"citypulse\"},"
+        "\"product_type\":\"ad\",\"like_count\":0,\"media_type\":10}},"
+        /* [4] non-post injection (no media_or_ad key) -- must be skipped entirely */
+        "{\"explore_story\":{\"whatever\":1}}"
+        "],\"next_max_id\":\"CURSOR123\"}";
+
+    PrivateFeed *f = feed_from_private_json(j, (int)strlen(j));
+    CHECK(f != NULL);
+    CHECK(f->count == 4); /* the explore_story item is skipped */
+    CHECK(strcmp(f->next_max_id, "CURSOR123") == 0);
+
+    CHECK(strcmp(f->posts[0].username, "jun.photo") == 0);
+    CHECK(strcmp(f->posts[0].caption, "golden hour") == 0);
+    CHECK(f->posts[0].like_count == 1204);
+    CHECK(f->posts[0].media_type == 1);
+    CHECK(strcmp(f->posts[0].image_url, "https://cdn/sunset.jpg") == 0);
+    CHECK(f->posts[0].num_slides == 0);
+
+    CHECK(f->posts[1].caption == NULL); /* null caption -> NULL, not "null" */
+    CHECK(f->posts[1].num_slides == 2);
+    CHECK(strcmp(f->posts[1].image_url, "https://cdn/slide1.jpg") == 0); /* first SLIDE, not cover */
+
+    CHECK(f->posts[2].media_type == 2);
+    CHECK(strcmp(f->posts[2].image_url, "https://cdn/vidcover.jpg") == 0);
+
+    CHECK(f->posts[3].image_url == NULL); /* no image_versions2 at all */
+    CHECK(f->posts[3].media_type == 10);
+
+    private_feed_free(f);
+
+    /* malformed JSON -> NULL; empty feed_items -> count 0, no crash */
+    CHECK(feed_from_private_json("{bad", 4) == NULL);
+    PrivateFeed *empty = feed_from_private_json("{\"feed_items\":[]}", 17);
+    CHECK(empty != NULL && empty->count == 0 && empty->next_max_id == NULL);
+    private_feed_free(empty);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -388,6 +453,7 @@ int main(void) {
     test_json();
     test_http();
     test_model();
+    test_model_private();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
