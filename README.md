@@ -77,7 +77,11 @@ PY
       — smooth gradient photos, action bar, nav.
 - [x] **Milestone 2.1 — real text**: 5x7 bitmap font in `core/font` (Instagram
       wordmark, usernames, locations, likes, captions, comments) verified on NT4.
-- [ ] Milestone 3 — image decode (`stb_image`/`libwebp`) + scroll list
+- [x] **Milestone 3 — image decode**: from-scratch **QOI** codec in `img/qoi`
+      (no JPEG library needed, freestanding-friendly). The client loads `.qoi`
+      photos off the CD (`pal_read_file`), decodes + area-downscales them into the
+      feed. Sample scenes authored with `tools/mkqoi`. Verified on NT4.
+- [ ] Milestone 3.1 — scrollable feed; real JPEG decoder behind the same API
 - [ ] Milestone 4 — `core/http`+`json`+`ws` over `pal` sockets to a local mock server
 - [ ] Milestone 5 — bundle mbedTLS, TLS 1.2 + SNI to a self-signed HTTPS mock
 - [ ] Milestone 6 — `GraphApiSource` (official API), pagination, post detail

@@ -1,6 +1,7 @@
 /* tests/test_raster.c — native (Mac clang + ASan/UBSan) unit tests for core/raster. */
 #include "../core/raster.h"
 #include "../core/font.h"
+#include "../img/qoi.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -192,6 +193,43 @@ static void test_font(void) {
     surface_free(&s);
 }
 
+static void test_qoi(void) {
+    Surface s;
+    surface_alloc(&s, 17, 13);
+    /* varied pattern: per-pixel gradient with changing alpha exercises
+     * RGB/RGBA/DIFF/LUMA/INDEX paths; a filled block exercises RUN. */
+    for (int y = 0; y < s.h; y++)
+        for (int x = 0; x < s.w; x++)
+            s.pixels[y * s.stride + x] =
+                ras_argb((uint8_t)((x + y) * 9), (uint8_t)(x * 15), (uint8_t)(y * 20), (uint8_t)(x * 3 + 40));
+    surface_fill_rect(&s, (Rect){ 2, 2, 8, 5 }, ras_argb(200, 10, 20, 30)); /* a run */
+
+    int len = 0;
+    unsigned char *enc = qoi_encode(&s, &len);
+    CHECK(enc != NULL);
+    CHECK(len > 14 + 8);
+    CHECK(enc[0] == 'q' && enc[1] == 'o' && enc[2] == 'i' && enc[3] == 'f');
+
+    Surface d;
+    CHECK(qoi_decode(enc, len, &d) == 0);
+    CHECK(d.w == s.w && d.h == s.h);
+    int mism = 0;
+    for (int y = 0; y < s.h; y++)
+        for (int x = 0; x < s.w; x++)
+            if (s.pixels[y * s.stride + x] != d.pixels[y * d.stride + x]) mism++;
+    CHECK(mism == 0); /* lossless round-trip */
+
+    /* rejects: bad magic, truncated */
+    Surface bad;
+    unsigned char junk[32] = { 0 };
+    CHECK(qoi_decode(junk, (int)sizeof(junk), &bad) == -1);
+    CHECK(qoi_decode(enc, 5, &bad) == -1);
+
+    qoi_free(enc);
+    surface_free(&s);
+    surface_free(&d);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -202,6 +240,7 @@ int main(void) {
     test_blit_alpha();
     test_downscale();
     test_font();
-    printf("raster+font tests: %d checks, %d failures\n", g_checks, g_fail);
+    test_qoi();
+    printf("raster+font+qoi tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

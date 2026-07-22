@@ -11,6 +11,7 @@
 #define CORE_RASTER_H
 
 #include <stdint.h>
+#include <stddef.h> /* NULL, size_t (freestanding-safe) */
 
 typedef struct {
     uint32_t *pixels; /* row-major, top-down, `stride` uint32_t per row */

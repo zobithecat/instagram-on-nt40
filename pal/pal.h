@@ -22,4 +22,8 @@ int pal_run_window(const char *title, int w, int h, pal_render_fn render, void *
  * No-op-safe if COM1 can't be opened. printf-style. */
 void pal_log(const char *fmt, ...);
 
+/* Read an entire file into a freshly malloc'd buffer. On success returns the
+ * buffer and sets *len; caller frees with free(). Returns NULL on any error. */
+void *pal_read_file(const char *path, int *len);
+
 #endif /* PAL_H */

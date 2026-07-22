@@ -13,6 +13,7 @@ SAN        = -fsanitize=address,undefined -fno-omit-frame-pointer
 HOSTFLAGS  = -std=c11 -g -O1 -Wall -Wextra -Werror $(SAN)
 
 CORE_SRC   = $(wildcard core/*.c)
+IMG_SRC    = $(wildcard img/*.c)
 TEST_SRC   = $(wildcard tests/*.c)
 TEST_BIN   = build/coretest
 
@@ -32,8 +33,8 @@ NT4WARN    = -std=c11 -Wall -Wextra -march=i486 -mtune=i486 \
 NT4LDFLAGS = -nostdlib -Wl,-e,_mainCRTStartup -Wl,--subsystem,windows \
              -Wl,--major-subsystem-version=4,--minor-subsystem-version=0 \
              -Wl,--major-os-version=4,--minor-os-version=0
-APP_SRC    = $(wildcard core/*.c) $(wildcard pal/*.c) $(wildcard ui/*.c)
-APP_INC    = -Icore -Ipal -Iui
+APP_SRC    = $(wildcard core/*.c) $(wildcard img/*.c) $(wildcard pal/*.c) $(wildcard ui/*.c)
+APP_INC    = -Icore -Iimg -Ipal -Iui
 APP_LIBS   = -lgdi32 -lcomctl32 -ladvapi32 -luser32 -lkernel32 $(LIBGCC)
 APP_EXE    = dist/app.exe
 
@@ -41,8 +42,8 @@ APP_EXE    = dist/app.exe
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
-	$(CC) -std=c11 -O2 -Wall $(CORE_SRC) ui/feed.c tools/render_preview.c \
-	  -Icore -Iui -o build/preview
+	$(CC) -std=c11 -O2 -Wall $(CORE_SRC) $(IMG_SRC) ui/feed.c tools/render_preview.c \
+	  -Icore -Iimg -Iui -o build/preview
 	./build/preview build/feed.ppm 340 600
 	@magick build/feed.ppm build/feed.png 2>/dev/null && echo "wrote build/feed.png" \
 	  || echo "(install imagemagick for PNG; PPM at build/feed.ppm)"
@@ -50,8 +51,8 @@ preview: | build
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
-$(TEST_BIN): $(CORE_SRC) $(TEST_SRC) | build
-	$(CC) $(HOSTFLAGS) $(CORE_SRC) $(TEST_SRC) -Icore -o $@
+$(TEST_BIN): $(CORE_SRC) $(IMG_SRC) $(TEST_SRC) | build
+	$(CC) $(HOSTFLAGS) $(CORE_SRC) $(IMG_SRC) $(TEST_SRC) -Icore -Iimg -o $@
 
 nt4: | dist
 	$(XCC) $(APP_SRC) -o $(APP_EXE) \

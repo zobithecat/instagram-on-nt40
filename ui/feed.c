@@ -63,8 +63,9 @@ static const MockPost k_posts[] = {
 };
 #define N_POSTS ((int)(sizeof(k_posts) / sizeof(k_posts[0])))
 
-/* Draw one feed post starting at top y; returns y after the post. */
-static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
+/* Draw one feed post starting at top y; returns y after the post.
+ * `photo` (or NULL) is the decoded post image; NULL uses the gradient. */
+static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const Surface *photo) {
     int pad = 8;
     Rect card = { x, y, w, 0 };
 
@@ -91,11 +92,20 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
 
     cy = y + hdr_h;
 
-    /* photo well */
-    Rect photo = { cx, cy, cw, photo_h };
-    panel_sunken(s, photo);
-    gradient_v(s, (Rect){ photo.x + 2, photo.y + 2, photo.w - 4, photo.h - 4 },
-               p->grad_top, p->grad_bot);
+    /* photo well: decoded photo (downscaled to fit) or gradient fallback */
+    Rect well = { cx, cy, cw, photo_h };
+    panel_sunken(s, well);
+    if (photo && photo->w > 0 && photo->h > 0) {
+        Surface tmp;
+        if (surface_alloc(&tmp, well.w - 4, well.h - 4) == 0) {
+            surface_downscale(&tmp, photo);
+            surface_blit(s, well.x + 2, well.y + 2, &tmp, NULL); /* clips to fb */
+            surface_free(&tmp);
+        }
+    } else {
+        gradient_v(s, (Rect){ well.x + 2, well.y + 2, well.w - 4, well.h - 4 },
+                   p->grad_top, p->grad_bot);
+    }
 
     cy += photo_h;
 
@@ -120,7 +130,7 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p) {
 }
 
 void ui_feed_render(Surface *fb, void *user) {
-    (void)user;
+    const FeedImages *imgs = (const FeedImages *)user;
     surface_fill(fb, C_FACE);
 
     /* top app bar */
@@ -137,7 +147,8 @@ void ui_feed_render(Surface *fb, void *user) {
     int y = bar_h + 6;
     for (int i = 0; i < N_POSTS; i++) {
         if (y > fb->h) break;
-        y = draw_post(fb, x, y, w, &k_posts[i]);
+        const Surface *photo = (imgs && i < 8) ? imgs->photos[i] : NULL;
+        y = draw_post(fb, x, y, w, &k_posts[i], photo);
     }
 
     /* bottom nav bar */

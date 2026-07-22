@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <stdarg.h>
+#include <stdlib.h> /* malloc/free — provided by pal/nt4_crt.c */
 
 typedef struct {
     pal_render_fn render;
@@ -46,6 +47,22 @@ void pal_log(const char *fmt, ...) {
         WriteFile(com, buf, (DWORD)n, &wrote, NULL);
     }
     OutputDebugStringA(buf); /* also visible to a host debugger if attached */
+}
+
+void *pal_read_file(const char *path, int *len) {
+    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) { pal_log("read_file: open failed: %s", path); return NULL; }
+    DWORD size = GetFileSize(h, NULL);
+    if (size == INVALID_FILE_SIZE || size == 0) { CloseHandle(h); return NULL; }
+    unsigned char *buf = (unsigned char *)malloc(size);
+    if (!buf) { CloseHandle(h); return NULL; }
+    DWORD got = 0;
+    BOOL ok = ReadFile(h, buf, size, &got, NULL);
+    CloseHandle(h);
+    if (!ok || got != size) { free(buf); return NULL; }
+    if (len) *len = (int)size;
+    return buf;
 }
 
 /* ---- DIB-section backbuffer ----------------------------------------------*/
