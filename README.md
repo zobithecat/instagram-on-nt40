@@ -88,9 +88,22 @@ PY
       (화살표/PageUp·Down/Home·End) + 마우스휠. 고정 앱바·네비 사이에서 포스트 스크롤.
       NT4에서 검증
 - [ ] **마일스톤 3.2** — 동일 디코드 API 뒤에 진짜 JPEG 디코더
-- [ ] **마일스톤 4** — `core/http`+`json`+`ws`를 `pal` 소켓 위에 얹어 로컬 목 서버와 통신
-- [ ] **마일스톤 5** — mbedTLS 번들, 셀프사인 HTTPS 목에 TLS 1.2 + SNI
-- [ ] **마일스톤 6** — `GraphApiSource`(공식 API), 페이지네이션, 포스트 상세
+- [x] **네트워킹 순수 코어**: `core/json`(재귀하강 JSON DOM, \uXXXX→UTF-8), `core/http`
+      (요청 빌더 + Content-Length/chunked 응답 파서), `core/model`(Graph API 미디어
+      JSON → Feed/Post) — 전부 Mac에서 ASan 테스트 (112 checks), VM 불필요
+- [x] **게스트 네트워킹**: AMD PCnet + TCP/IP + DHCP 전부 NT4에서 확인됨
+      (`ipconfig`: 10.0.2.15/24 gw 10.0.2.2). `ping 10.0.2.2`, `ping 8.8.8.8` 둘 다 성공
+      — QEMU NAT로 **실제 인터넷 도달 가능** 확인 (`docs/screenshots/nt4-networking-ping-internet.png`)
+- [ ] **마일스톤 4** — `pal` Winsock(1.1/wsock32, NT4 네이티브) 소켓, 로컬 목서버로 먼저 검증
+- [ ] **마일스톤 5** — mbedTLS 크로스빌드 (TLS 1.2 + SNI), `graph.instagram.com` HTTPS 연결
+- [ ] **마일스톤 6** — Graph API 로그인(토큰) 화면 + 실 피드/이미지 fetch → **모놀리딕 최종 빌드**
+
+### 🎯 최종 목표 (북극성)
+설치만 하면 **로그인까지 전부 동작**하는 모놀리딕 단일 `app.exe`. 로그인 대상은
+**공식 Instagram Graph API(OAuth)** — 라이브 프라이빗 로그인(사실상 불가·ToS 위반)도,
+목 서버도 아닙니다. OAuth 동의 단계는 브라우저 기반이라 NT4에서 못 띄우므로, 토큰은
+최신 브라우저에서 1회 발급받고 NT4 앱은 그 토큰으로 `graph.instagram.com`에 TLS로
+직접 접속해 진짜 피드/사진을 받아옵니다 (Meta 개발자 앱 + 비즈니스/크리에이터 계정 필요).
 
 ### 해결한 NT4 함정들 (자세히는 `docs/vm-notes.md`)
 
