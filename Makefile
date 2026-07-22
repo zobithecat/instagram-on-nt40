@@ -74,7 +74,14 @@ TLS_DEFS   = $(MBEDTLS_DEFS)
 TLS_LIBS   = $(MBEDTLS_LIB) -lwsock32 -ladvapi32 -luser32 -lkernel32 $(LIBGCC)
 TLS_EXE    = dist/tlstest.exe
 
-.PHONY: test nt4 nettest mbedtls tlstest preview clean run-vm
+# stretch goal: real TLS 1.2 handshake + X.509 verify against the REAL
+# graph.instagram.com (no access token yet -- expect a Graph API error JSON).
+GRAPH_SRC  = core/json.c core/http.c core/model.c \
+             pal/nt4_crt.c pal/pal_common_win32.c pal/net_win32.c \
+             net/mbedtls_platform_nt4.c net/graphtest_main.c
+GRAPH_EXE  = dist/graphtest.exe
+
+.PHONY: test nt4 nettest mbedtls tlstest graphtest preview clean run-vm
 
 # Host-side render of the feed (ui/feed.c is pure raster) -> PPM -> PNG.
 preview: | build
@@ -110,6 +117,13 @@ tlstest: $(MBEDTLS_LIB) | dist
 	  $(NT4LDFLAGS) $(TLS_LIBS)
 	@echo "built $(TLS_EXE):"; \
 	  i686-w64-mingw32-size $(TLS_EXE) 2>/dev/null || ls -l $(TLS_EXE)
+
+graphtest: $(MBEDTLS_LIB) | dist
+	$(XCC) $(GRAPH_SRC) -o $(GRAPH_EXE) \
+	  $(NT4DEFS) $(NT4WARN) $(TLS_DEFS) $(TLS_INC) \
+	  $(NT4LDFLAGS) $(TLS_LIBS)
+	@echo "built $(GRAPH_EXE):"; \
+	  i686-w64-mingw32-size $(GRAPH_EXE) 2>/dev/null || ls -l $(GRAPH_EXE)
 
 mbedtls: $(MBEDTLS_LIB)
 
