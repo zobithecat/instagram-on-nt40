@@ -16,6 +16,8 @@ CORE_SRC   = $(wildcard core/*.c)
 IMG_SRC    = $(wildcard img/*.c)
 TEST_SRC   = $(wildcard tests/*.c)
 TEST_BIN   = build/coretest
+# img/jpeg.c #includes the vendored (gitignored) third_party/stb/stb_image.h
+# via a relative path, so no extra -I flag is needed in any recipe below.
 
 # ---- NT4 cross build (mingw-w64) ----
 # Freestanding: Homebrew's mingw links the UCRT (api-ms-win-crt-*.dll), absent on

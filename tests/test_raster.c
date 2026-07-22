@@ -6,6 +6,8 @@
 #include "../core/model.h"
 #include "../core/model_private.h"
 #include "../img/qoi.h"
+#include "../img/jpeg.h"
+#include "fixtures/jpeg_test_images.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -439,6 +441,41 @@ static void test_model_private(void) {
     private_feed_free(empty);
 }
 
+/* JPEG is lossy, so we allow a small per-channel tolerance rather than
+ * demanding an exact match -- a solid-color block should still decode very
+ * close to the source since it has a zero AC / pure-DC DCT representation. */
+static int close_enough(uint8_t a, uint8_t b, int tol) {
+    int d = (int)a - (int)b;
+    if (d < 0) d = -d;
+    return d <= tol;
+}
+
+static void test_jpeg(void) {
+    Surface s;
+    CHECK(jpeg_decode(k_test_jpeg_red8, (int)k_test_jpeg_red8_len, &s) == 0);
+    CHECK(s.w == 8 && s.h == 8);
+    uint32_t p = at(&s, 3, 3);
+    CHECK(ras_a(p) == 255); /* JPEG has no alpha; decoder must report opaque */
+    CHECK(close_enough(ras_r(p), 200, 12));
+    CHECK(close_enough(ras_g(p), 40, 12));
+    CHECK(close_enough(ras_b(p), 40, 12));
+    surface_free(&s);
+
+    /* two-tone image: left half red, right half blue */
+    Surface sp;
+    CHECK(jpeg_decode(k_test_jpeg_split, (int)k_test_jpeg_split_len, &sp) == 0);
+    CHECK(sp.w == 16 && sp.h == 8);
+    uint32_t left = at(&sp, 2, 4), right = at(&sp, 13, 4);
+    CHECK(close_enough(ras_r(left), 200, 20) && close_enough(ras_b(left), 40, 20));
+    CHECK(close_enough(ras_r(right), 30, 20) && close_enough(ras_b(right), 200, 20));
+    surface_free(&sp);
+
+    /* malformed input -> -1, not a crash (ASan would catch OOB) */
+    Surface bad;
+    unsigned char junk[16] = { 0 };
+    CHECK(jpeg_decode(junk, (int)sizeof(junk), &bad) == -1);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -454,6 +491,7 @@ int main(void) {
     test_http();
     test_model();
     test_model_private();
+    test_jpeg();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
