@@ -74,8 +74,9 @@ PY
 - [x] **Milestone 1 — runs on real NT4**: DIB compositor + double buffer, freestanding
       (no-CRT) `app.exe` loads and shows its window under QEMU. `docs/screenshots/`.
 - [x] **Milestone 2 — gray-bevel feed** renders on NT4 in truecolor (Cirrus @ 1280x1024)
-      — smooth gradient photos, action bar, nav. *(text is still placeholder bars)*
-- [ ] Milestone 2.1 — bitmap font in `core/` for real username/caption text
+      — smooth gradient photos, action bar, nav.
+- [x] **Milestone 2.1 — real text**: 5x7 bitmap font in `core/font` (Instagram
+      wordmark, usernames, locations, likes, captions, comments) verified on NT4.
 - [ ] Milestone 3 — image decode (`stb_image`/`libwebp`) + scroll list
 - [ ] Milestone 4 — `core/http`+`json`+`ws` over `pal` sockets to a local mock server
 - [ ] Milestone 5 — bundle mbedTLS, TLS 1.2 + SNI to a self-signed HTTPS mock
