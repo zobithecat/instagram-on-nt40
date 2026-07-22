@@ -84,7 +84,10 @@ PY
 - [x] **마일스톤 3 — 이미지 디코드**: `img/qoi`에 밑바닥부터 만든 **QOI** 코덱 (JPEG
       라이브러리 불필요, freestanding 친화적). CD에서 `.qoi` 사진을 로드(`pal_read_file`)해
       디코드 + area-다운스케일 후 피드에 표시. 샘플 신은 `tools/mkqoi`로 제작. NT4에서 검증
-- [ ] **마일스톤 3.1** — 스크롤 가능한 피드; 동일 API 뒤에 진짜 JPEG 디코더
+- [x] **마일스톤 3.1 — 스크롤 피드**: WS_VSCROLL 실제 OS 스크롤바 + 키보드
+      (화살표/PageUp·Down/Home·End) + 마우스휠. 고정 앱바·네비 사이에서 포스트 스크롤.
+      NT4에서 검증
+- [ ] **마일스톤 3.2** — 동일 디코드 API 뒤에 진짜 JPEG 디코더
 - [ ] **마일스톤 4** — `core/http`+`json`+`ws`를 `pal` 소켓 위에 얹어 로컬 목 서버와 통신
 - [ ] **마일스톤 5** — mbedTLS 번들, 셀프사인 HTTPS 목에 TLS 1.2 + SNI
 - [ ] **마일스톤 6** — `GraphApiSource`(공식 API), 페이지네이션, 포스트 상세
