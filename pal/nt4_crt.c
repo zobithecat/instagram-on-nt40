@@ -80,6 +80,15 @@ char *strchr(const char *s, int c) {
         if (!*s) return (void *)0;
     }
 }
+char *strstr(const char *hay, const char *needle) {
+    if (!*needle) return (char *)hay;
+    for (; *hay; hay++) {
+        const char *h = hay, *n = needle;
+        while (*h && *n && *h == *n) { h++; n++; }
+        if (!*n) return (char *)hay;
+    }
+    return (void *)0;
+}
 
 /* ---- PE entry point (replaces the CRT's WinMainCRTStartup) ----
  * -nostdlib means no CRT startup runs, so we set up nothing beyond calling

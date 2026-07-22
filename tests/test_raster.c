@@ -2,6 +2,7 @@
 #include "../core/raster.h"
 #include "../core/font.h"
 #include "../core/json.h"
+#include "../core/http.h"
 #include "../img/qoi.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -281,6 +282,64 @@ static void test_json(void) {
     CHECK(json_parse("\"unterminated", 13) == NULL);
 }
 
+static void test_http(void) {
+    /* request builder */
+    HttpHeader h[] = { { "Accept", "application/json" }, { "Connection", "close" } };
+    int rl = 0;
+    char *req = http_build_request("GET", "graph.instagram.com",
+                                   "/me/media?fields=id", h, 2, NULL, 0, &rl);
+    CHECK(req != NULL);
+    const char *want =
+        "GET /me/media?fields=id HTTP/1.1\r\n"
+        "Host: graph.instagram.com\r\n"
+        "Accept: application/json\r\n"
+        "Connection: close\r\n\r\n";
+    CHECK(rl == (int)strlen(want));
+    CHECK(memcmp(req, want, (size_t)rl) == 0);
+    free(req);
+
+    /* POST with body adds Content-Length */
+    const char *bd = "x=1";
+    char *preq = http_build_request("POST", "h", "/p", NULL, 0, bd, 3, &rl);
+    CHECK(preq && strstr(preq, "Content-Length: 3\r\n") != NULL);
+    CHECK(memcmp(preq + rl - 3, "x=1", 3) == 0);
+    free(preq);
+
+    /* Content-Length response */
+    const char *r1 =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 13\r\n\r\n"
+        "{\"ok\":true}\r\n";
+    HttpResponse resp;
+    CHECK(http_parse_response(r1, (int)strlen(r1), &resp) == 0);
+    CHECK(resp.status == 200);
+    CHECK(strcmp(resp.reason, "OK") == 0);
+    CHECK(resp.body_len == 13);
+    CHECK(strcmp(http_header(&resp, "content-type"), "application/json") == 0); /* ci */
+    CHECK(strcmp(http_header(&resp, "CONTENT-LENGTH"), "13") == 0);
+    CHECK(http_header(&resp, "x-missing") == NULL);
+    CHECK(memcmp(resp.body, "{\"ok\":true}\r\n", 13) == 0);
+    http_response_free(&resp);
+
+    /* chunked response decodes to a contiguous body */
+    const char *r2 =
+        "HTTP/1.1 200 OK\r\n"
+        "Transfer-Encoding: chunked\r\n\r\n"
+        "5\r\nhello\r\n"
+        "6\r\n world\r\n"
+        "0\r\n\r\n";
+    HttpResponse c;
+    CHECK(http_parse_response(r2, (int)strlen(r2), &c) == 0);
+    CHECK(c.body_len == 11);
+    CHECK(memcmp(c.body, "hello world", 11) == 0);
+    http_response_free(&c);
+
+    /* malformed */
+    HttpResponse bad;
+    CHECK(http_parse_response("nonsense", 8, &bad) == -1);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -293,6 +352,7 @@ int main(void) {
     test_font();
     test_qoi();
     test_json();
+    test_http();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
