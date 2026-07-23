@@ -36,6 +36,40 @@ static unsigned long resolve_host(const char *host) {
     return result;
 }
 
+/* Blocking connect()/send()/recv() have no built-in timeout: a stalled peer
+ * (or a route that black-holes instead of RSTing) hangs the calling thread
+ * forever. This app has no worker thread -- a hang here freezes the whole
+ * GUI before its window even exists -- so every socket gets an explicit
+ * bound: a non-blocking connect() + select() for the connect phase, and
+ * SO_RCVTIMEO/SO_SNDTIMEO (both take a DWORD ms on Winsock, unlike POSIX's
+ * timeval) for all I/O after that. */
+#define PAL_NET_TIMEOUT_MS 15000
+
+static int connect_with_timeout(SOCKET s, const struct sockaddr_in *sin) {
+    u_long nonblock = 1;
+    ioctlsocket(s, FIONBIO, &nonblock);
+
+    int rc = connect(s, (const struct sockaddr *)sin, sizeof(*sin));
+    if (rc == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK) return -1;
+
+    if (rc == SOCKET_ERROR) {
+        fd_set wfds, efds;
+        FD_ZERO(&wfds); FD_SET(s, &wfds);
+        FD_ZERO(&efds); FD_SET(s, &efds);
+        struct timeval tv = { PAL_NET_TIMEOUT_MS / 1000, (PAL_NET_TIMEOUT_MS % 1000) * 1000 };
+        int n = select(0, NULL, &wfds, &efds, &tv);
+        if (n <= 0 || !FD_ISSET(s, &wfds)) return -1; /* timed out, or failed */
+    }
+
+    u_long block = 0;
+    ioctlsocket(s, FIONBIO, &block);
+
+    DWORD timeout_ms = PAL_NET_TIMEOUT_MS;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+    return 0;
+}
+
 PalSocket pal_tcp_connect(const char *host, unsigned short port) {
     unsigned long addr = resolve_host(host);
     if (addr == INADDR_NONE) return -1;
@@ -52,8 +86,8 @@ PalSocket pal_tcp_connect(const char *host, unsigned short port) {
     sin.sin_port   = htons(port);
     sin.sin_addr.s_addr = addr;
 
-    if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) == SOCKET_ERROR) {
-        pal_log("pal_tcp_connect: connect(%s:%u) failed %d", host, port, WSAGetLastError());
+    if (connect_with_timeout(s, &sin) != 0) {
+        pal_log("pal_tcp_connect: connect(%s:%u) failed/timed out (%d)", host, port, WSAGetLastError());
         closesocket(s);
         return -1;
     }
