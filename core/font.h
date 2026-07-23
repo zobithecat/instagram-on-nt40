@@ -7,9 +7,18 @@
  * Also renders Hangul: a UTF-8 sequence that decodes to a KS X 1001 (1987
  * wansung) syllable — the ~2350-glyph subset that covers the overwhelming
  * majority of real Korean text, see core/font_hangul_data.h — gets a real
- * 14x14 bitmap glyph. Any other non-ASCII codepoint (other scripts, emoji,
- * rarer modern Hangul syllables outside that subset) advances blank as one
- * unit per codepoint, same "no garbage, just a gap" philosophy as before. */
+ * 18x18 bitmap glyph (more than 2x FONT_LINE tall!). Any other non-ASCII
+ * codepoint (other scripts, emoji, rarer modern Hangul syllables outside
+ * that subset) advances blank as one unit per codepoint, same "no garbage,
+ * just a gap" philosophy as before.
+ *
+ * A caller stacking multiple text lines close together (e.g. ui/feed.c's
+ * post cards) MUST use FONT_WIDE_LINE, not FONT_LINE, as the vertical pitch
+ * for any line that might hold externally-sourced text (a real fetched
+ * caption) — FONT_LINE alone will make an 18px-tall Hangul glyph visually
+ * overlap the line above/below it. Lines guaranteed to be our own ASCII
+ * (usernames — Instagram restricts these to Latin/digits/._ — or our own
+ * formatted "N likes" string) can keep the tighter FONT_LINE pitch. */
 #ifndef CORE_FONT_H
 #define CORE_FONT_H
 
@@ -18,7 +27,12 @@
 #define FONT_W    5
 #define FONT_H    7
 #define FONT_ADV  6   /* glyph advance at scale 1 (5px glyph + 1px gap) */
-#define FONT_LINE 8   /* line height at scale 1 */
+#define FONT_LINE 8   /* line height at scale 1, ASCII-only lines */
+
+/* Vertical pitch (scale 1) tall enough for the tallest glyph this font can
+ * draw (currently the 18px Hangul bitmap, core/font_hangul_data.h's
+ * HANGUL_H, +1px gap) -- font.c _Static_assert's this stays in sync. */
+#define FONT_WIDE_LINE 19
 
 /* Draw NUL-terminated `str` at (x,y) top-left in `color` (uses color's alpha).
  * `scale` >= 1 enlarges each glyph pixel to a scale x scale block. '\n' wraps

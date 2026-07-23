@@ -1,12 +1,18 @@
-/* core/font.c — 5x7 Latin bitmap font data + renderer, plus a 14x14 Hangul
+/* core/font.c — 5x7 Latin bitmap font data + renderer, plus an 18x18 Hangul
  * bitmap font (KS X 1001 subset, see font_hangul_data.h) for real-feed
  * captions that mix English and Korean. Each Latin glyph is 7 rows; the low
  * 5 bits of each row are the pixels, MSB = left (same convention for the
- * Hangul glyphs' low 14 bits). */
+ * Hangul glyphs' low HANGUL_W bits). */
 #include "font.h"
 #include "font_hangul_data.h"
 
 #define HANGUL_ADV (HANGUL_W + 1) /* 1px gap, same spirit as FONT_ADV */
+
+/* font.h's FONT_WIDE_LINE is a hand-maintained copy of HANGUL_H+1 (callers
+ * lay out with it, and shouldn't need to pull in this whole glyph-data
+ * header just for one number) -- catch it silently drifting out of sync
+ * with a regenerated, differently-sized font_hangul_data.h. */
+_Static_assert(HANGUL_H < FONT_WIDE_LINE, "font.h's FONT_WIDE_LINE must exceed HANGUL_H");
 
 /* Binary search HANGUL_CODEPOINTS (sorted ascending) for a decoded UTF-8
  * codepoint. Returns the glyph index, or -1 if this codepoint isn't in the

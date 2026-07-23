@@ -173,12 +173,20 @@ static int draw_post(Surface *s, int x, int y, int w, const PostView *p) {
 
     cy += act_h;
 
-    /* caption: likes, "user caption", comments link */
+    /* caption: likes, "user caption", comments link. `likes`/`comments` are
+     * always our own ASCII (formatted "N likes" or a hardcoded mock string)
+     * so they keep the tight FONT_LINE pitch; the caption itself is real,
+     * externally-sourced text that may contain an 18px-tall Hangul glyph
+     * (see core/font.h's FONT_WIDE_LINE), so it gets a full wide-line's
+     * worth of clearance both above and below regardless of what it
+     * actually contains -- otherwise a Hangul caption visually overlaps the
+     * likes/comments lines instead of just taking up its reserved space. */
+    int caption_y = cy + FONT_LINE + 1;
     font_draw(s, cx, cy, p->likes, C_TEXT);
-    font_draw(s, cx, cy + 11, p->user, C_TEXT);
+    font_draw(s, cx, caption_y, p->user, C_TEXT);
     if (p->caption)
-        font_draw(s, cx + font_text_width(p->user, 1) + 4, cy + 11, p->caption, C_INK);
-    if (p->comments) font_draw(s, cx, cy + 22, p->comments, C_SHADOW);
+        font_draw(s, cx + font_text_width(p->user, 1) + 4, caption_y, p->caption, C_INK);
+    if (p->comments) font_draw(s, cx, caption_y + FONT_WIDE_LINE, p->comments, C_SHADOW);
 
     return y + card.h + 6;
 }
