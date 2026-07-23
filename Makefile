@@ -35,9 +35,16 @@ NT4WARN    = -std=c11 -Wall -Wextra -march=i486 -mtune=i486 \
 NT4LDFLAGS = -nostdlib -Wl,-e,_mainCRTStartup -Wl,--subsystem,windows \
              -Wl,--major-subsystem-version=4,--minor-subsystem-version=0 \
              -Wl,--major-os-version=4,--minor-os-version=0
-APP_SRC    = $(wildcard core/*.c) $(wildcard img/*.c) $(wildcard pal/*.c) $(wildcard ui/*.c)
-APP_INC    = -Icore -Iimg -Ipal -Iui
-APP_LIBS   = -lgdi32 -lcomctl32 -ladvapi32 -luser32 -lkernel32 -lwsock32 $(LIBGCC)
+# net/*.c is NOT wildcarded in: several files there (nettest_main.c,
+# tlstest_main.c, graphtest_main.c, ig_feed_main.c) are standalone bring-up
+# programs with their own WinMain, which would conflict with ui/main.c's.
+# List only the non-main networking bricks the real app.exe needs: TLS
+# platform glue, the private-API request builder, the generic HTTPS client,
+# and the timeline-fetch wrapper.
+APP_NET_SRC = net/mbedtls_platform_nt4.c net/ig_private.c net/https_get.c net/ig_client.c
+APP_SRC    = $(wildcard core/*.c) $(wildcard img/*.c) $(wildcard pal/*.c) $(wildcard ui/*.c) $(APP_NET_SRC)
+APP_INC    = -Icore -Iimg -Ipal -Iui -Inet $(MBEDTLS_INC)
+APP_LIBS   = $(MBEDTLS_LIB) -lgdi32 -lcomctl32 -ladvapi32 -luser32 -lkernel32 -lwsock32 $(LIBGCC)
 APP_EXE    = dist/app.exe
 
 # milestone-4 bring-up: sockets + http + json + model against a plain-HTTP mock
@@ -105,12 +112,15 @@ preview: | build
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
-$(TEST_BIN): $(CORE_SRC) $(IMG_SRC) $(TEST_SRC) | build
-	$(CC) $(HOSTFLAGS) $(CORE_SRC) $(IMG_SRC) $(TEST_SRC) -Icore -Iimg -o $@
+# ui/feed.c is pure core/raster (no Win32), so it gets full ASan/UBSan
+# coverage on the host alongside core/ and img/ -- ui/main.c is excluded (it's
+# the Win32 GUI entry point, only exercised via `make nt4`/the real NT4 VM).
+$(TEST_BIN): $(CORE_SRC) $(IMG_SRC) ui/feed.c $(TEST_SRC) | build
+	$(CC) $(HOSTFLAGS) $(CORE_SRC) $(IMG_SRC) ui/feed.c $(TEST_SRC) -Icore -Iimg -Iui -o $@
 
-nt4: | dist
+nt4: $(MBEDTLS_LIB) | dist
 	$(XCC) $(APP_SRC) -o $(APP_EXE) \
-	  $(NT4DEFS) $(NT4WARN) $(APP_INC) \
+	  $(NT4DEFS) $(NT4WARN) $(MBEDTLS_DEFS) $(APP_INC) \
 	  $(NT4LDFLAGS) $(APP_LIBS)
 	@echo "built $(APP_EXE):"; \
 	  i686-w64-mingw32-size $(APP_EXE) 2>/dev/null || ls -l $(APP_EXE)

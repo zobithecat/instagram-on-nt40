@@ -41,6 +41,17 @@ static void gradient_v(Surface *s, Rect r, uint32_t top, uint32_t bot) {
     }
 }
 
+/* Shared per-card view, filled in by either the mock feed (render_posts) or
+ * the real feed (render_posts_real) and drawn by the one draw_post. `loc` and
+ * `comments` may be NULL to omit that line (the real feed doesn't have a
+ * location or a comment count parsed out of the private-API response). */
+typedef struct {
+    uint32_t grad_top, grad_bot; /* fallback-gradient colors (used if photo == NULL) */
+    const char *user, *loc, *likes, *caption, *comments;
+    int liked;                   /* heart filled? */
+    const Surface *photo;        /* decoded cover image, or NULL for the gradient */
+} PostView;
+
 typedef struct {
     uint32_t grad_top, grad_bot; /* fake-photo colors */
     const char *user, *loc, *likes, *caption, *comments;
@@ -75,9 +86,41 @@ static int post_card_height(int w) {
     return 40 /*hdr*/ + photo_h + 26 /*act*/ + 36 /*cap*/ + POST_PAD;
 }
 
-/* Draw one feed post starting at top y; returns y after the post.
- * `photo` (or NULL) is the decoded post image; NULL uses the gradient. */
-static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const Surface *photo) {
+/* Format "N likes" (no thousands separators -- keeps this a plain digit loop,
+ * no snprintf needed in the freestanding build) into buf (cap bytes). */
+static void format_likes(char *buf, int cap, long n) {
+    char digits[24];
+    int nd = 0;
+    if (n <= 0) {
+        digits[nd++] = '0';
+    } else {
+        while (n > 0 && nd < (int)sizeof(digits)) { digits[nd++] = (char)('0' + (n % 10)); n /= 10; }
+    }
+    int pos = 0;
+    for (int i = nd - 1; i >= 0 && pos < cap - 1; i--) buf[pos++] = digits[i];
+    static const char suffix[] = " likes";
+    for (int i = 0; suffix[i] && pos < cap - 1; i++) buf[pos++] = suffix[i];
+    buf[pos] = 0;
+}
+
+/* Derive a stable placeholder gradient from a username, so posts without a
+ * decoded photo (fetch/decode failed, or no image_url) still look distinct
+ * rather than all-identical. Not cryptographic -- just a visual seed. */
+static void gradient_from_name(const char *name, uint32_t *top, uint32_t *bot) {
+    unsigned h = 5381;
+    for (const unsigned char *p = (const unsigned char *)name; p && *p; p++) h = h * 33 + *p;
+    uint8_t r = (uint8_t)(80 + (h & 0x7F));
+    uint8_t g = (uint8_t)(80 + ((h >> 7) & 0x7F));
+    uint8_t b = (uint8_t)(80 + ((h >> 14) & 0x7F));
+    *top = ras_rgb(r, g, b);
+    *bot = ras_rgb((uint8_t)(r / 2), (uint8_t)(g / 2), (uint8_t)(b / 2));
+}
+
+/* Draw one feed post starting at top y; returns y after the post. `p->loc`
+ * and `p->comments` may be NULL to omit that line (real-feed posts don't
+ * have them). `p->photo` (or NULL) is the decoded post image; NULL uses the
+ * gradient. */
+static int draw_post(Surface *s, int x, int y, int w, const PostView *p) {
     int pad = POST_PAD;
     Rect card = { x, y, w, post_card_height(w) };
 
@@ -95,7 +138,7 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const S
     panel_sunken(s, avatar);
     gradient_v(s, (Rect){ avatar.x + 2, avatar.y + 2, 20, 20 }, p->grad_top, p->grad_bot);
     font_draw(s, cx + 32, cy + 3, p->user, C_TEXT);          /* username */
-    font_draw(s, cx + 32, cy + 13, p->loc, C_SHADOW);        /* location */
+    if (p->loc) font_draw(s, cx + 32, cy + 13, p->loc, C_SHADOW); /* location */
     /* three-dot menu */
     for (int i = 0; i < 3; i++)
         surface_fill_rect(s, (Rect){ cx + cw - 4 - i * 6, cy + 10, 3, 3 }, C_INK);
@@ -105,10 +148,10 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const S
     /* photo well: decoded photo (downscaled to fit) or gradient fallback */
     Rect well = { cx, cy, cw, photo_h };
     panel_sunken(s, well);
-    if (photo && photo->w > 0 && photo->h > 0) {
+    if (p->photo && p->photo->w > 0 && p->photo->h > 0) {
         Surface tmp;
         if (surface_alloc(&tmp, well.w - 4, well.h - 4) == 0) {
-            surface_downscale(&tmp, photo);
+            surface_downscale(&tmp, p->photo);
             surface_blit(s, well.x + 2, well.y + 2, &tmp, NULL); /* clips to fb */
             surface_free(&tmp);
         }
@@ -133,8 +176,9 @@ static int draw_post(Surface *s, int x, int y, int w, const MockPost *p, const S
     /* caption: likes, "user caption", comments link */
     font_draw(s, cx, cy, p->likes, C_TEXT);
     font_draw(s, cx, cy + 11, p->user, C_TEXT);
-    font_draw(s, cx + font_text_width(p->user, 1) + 4, cy + 11, p->caption, C_INK);
-    font_draw(s, cx, cy + 22, p->comments, C_SHADOW);
+    if (p->caption)
+        font_draw(s, cx + font_text_width(p->user, 1) + 4, cy + 11, p->caption, C_INK);
+    if (p->comments) font_draw(s, cx, cy + 22, p->comments, C_SHADOW);
 
     return y + card.h + 6;
 }
@@ -145,47 +189,22 @@ int ui_feed_content_height(int width, void *user) {
     return POST_GAP + N_POSTS * (post_card_height(w) + POST_GAP);
 }
 
-int ui_feed_chrome_height(void) { return BAR_H + NAV_H; }
-
-/* Render all posts into an offscreen `content` surface (full scroll height). */
-static void render_posts(Surface *content, const FeedImages *imgs) {
-    surface_fill(content, C_FACE);
-    int x = 6, w = content->w - 12, y = POST_GAP;
-    for (int i = 0; i < N_POSTS; i++) {
-        const Surface *photo = (imgs && i < 8) ? imgs->photos[i] : NULL;
-        y = draw_post(content, x, y, w, &k_posts[i], photo);
-    }
+int ui_feed_content_height_real(int width, void *user) {
+    const FeedData *data = (const FeedData *)user;
+    int count = data ? data->count : 0;
+    int w = width - 12;
+    return POST_GAP + count * (post_card_height(w) + POST_GAP);
 }
 
-void ui_feed_render(Surface *fb, int scroll_y, void *user) {
-    const FeedImages *imgs = (const FeedImages *)user;
-    surface_fill(fb, C_FACE);
+int ui_feed_chrome_height(void) { return BAR_H + NAV_H; }
 
-    /* scrollable posts region between the fixed bars */
-    int view_h = fb->h - BAR_H - NAV_H;
-    if (view_h > 0) {
-        int content_h = ui_feed_content_height(fb->w, NULL);
-        int maxscroll = content_h - view_h;
-        if (maxscroll < 0) maxscroll = 0;
-        if (scroll_y < 0) scroll_y = 0;
-        if (scroll_y > maxscroll) scroll_y = maxscroll;
-
-        Surface content;
-        if (surface_alloc(&content, fb->w, content_h > 0 ? content_h : 1) == 0) {
-            render_posts(&content, imgs);
-            Rect src = { 0, scroll_y, fb->w, view_h };
-            surface_blit(fb, 0, BAR_H, &content, &src); /* clips to the viewport */
-            surface_free(&content);
-        }
-    }
-
-    /* fixed top app bar (drawn over the posts) */
+/* fixed top app bar + bottom nav bar, shared by both render paths */
+static void draw_chrome(Surface *fb) {
     surface_fill_rect(fb, (Rect){ 0, 0, fb->w, BAR_H }, C_IG_BLUE);
     surface_hline(fb, 0, BAR_H, fb->w, C_DARK);
     font_draw_scaled(fb, 10, 8, "Instagram", C_WHITE, 2);
     surface_frame(fb, (Rect){ fb->w - 26, 8, 16, 14 }, C_WHITE); /* DM icon */
 
-    /* fixed bottom nav bar */
     Rect nav = { 0, fb->h - NAV_H, fb->w, NAV_H };
     surface_fill_rect(fb, nav, C_FACE);
     surface_hline(fb, 0, nav.y, fb->w, C_HILIGHT);
@@ -195,4 +214,73 @@ void ui_feed_render(Surface *fb, int scroll_y, void *user) {
         int ix = (fb->w / n) * i + (fb->w / n) / 2 - 8;
         surface_frame(fb, (Rect){ ix, nav.y + 8, 16, 14 }, i == 0 ? C_IG_BLUE : C_INK);
     }
+}
+
+/* Fill `fb` with C_FACE, render `content_h` px of scrollable content (via
+ * `fill_content`) clipped/scrolled into the viewport between the fixed bars,
+ * then draw the chrome over it. Shared scroll-clamp/blit logic for both the
+ * mock and real render paths. */
+static void draw_scrollable(Surface *fb, int scroll_y, int content_h,
+                            void (*fill_content)(Surface *, const void *), const void *ctx) {
+    surface_fill(fb, C_FACE);
+
+    int view_h = fb->h - BAR_H - NAV_H;
+    if (view_h > 0) {
+        int maxscroll = content_h - view_h;
+        if (maxscroll < 0) maxscroll = 0;
+        if (scroll_y < 0) scroll_y = 0;
+        if (scroll_y > maxscroll) scroll_y = maxscroll;
+
+        Surface content;
+        if (surface_alloc(&content, fb->w, content_h > 0 ? content_h : 1) == 0) {
+            fill_content(&content, ctx);
+            Rect src = { 0, scroll_y, fb->w, view_h };
+            surface_blit(fb, 0, BAR_H, &content, &src); /* clips to the viewport */
+            surface_free(&content);
+        }
+    }
+
+    draw_chrome(fb);
+}
+
+static void fill_mock_posts(Surface *content, const void *ctx) {
+    const FeedImages *imgs = (const FeedImages *)ctx;
+    surface_fill(content, C_FACE);
+    int x = 6, w = content->w - 12, y = POST_GAP;
+    for (int i = 0; i < N_POSTS; i++) {
+        const MockPost *mp = &k_posts[i];
+        PostView pv = {
+            mp->grad_top, mp->grad_bot, mp->user, mp->loc, mp->likes,
+            mp->caption, mp->comments, mp->liked,
+            (imgs && i < 8) ? imgs->photos[i] : NULL,
+        };
+        y = draw_post(content, x, y, w, &pv);
+    }
+}
+
+void ui_feed_render(Surface *fb, int scroll_y, void *user) {
+    draw_scrollable(fb, scroll_y, ui_feed_content_height(fb->w, NULL), fill_mock_posts, user);
+}
+
+static void fill_real_posts(Surface *content, const void *ctx) {
+    const FeedData *data = (const FeedData *)ctx;
+    surface_fill(content, C_FACE);
+    int x = 6, w = content->w - 12, y = POST_GAP;
+    int count = data ? data->count : 0;
+    for (int i = 0; i < count; i++) {
+        const FeedPost *fp = &data->posts[i];
+        uint32_t top, bot;
+        gradient_from_name(fp->username, &top, &bot);
+        char likes_buf[24];
+        format_likes(likes_buf, sizeof(likes_buf), fp->like_count);
+        PostView pv = {
+            top, bot, fp->username, NULL, likes_buf,
+            fp->caption, NULL, 0, fp->photo,
+        };
+        y = draw_post(content, x, y, w, &pv);
+    }
+}
+
+void ui_feed_render_real(Surface *fb, int scroll_y, void *user) {
+    draw_scrollable(fb, scroll_y, ui_feed_content_height_real(fb->w, user), fill_real_posts, user);
 }

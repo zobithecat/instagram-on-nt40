@@ -124,6 +124,21 @@ PY
       스키마 파서) + `net/ig_private`(헤더/바디 빌더) + `net/ig_feed_main` 완성.
       실제 홈피드(사진·캐러셀·영상·광고·한글 캡션+이모지) 8개 포스트 정확히 파싱 성공
       (661KB 무압축 응답). exe는 advapi32/kernel32/user32/wsock32만, **CMOV 0개**
+- [x] **마일스톤 7 — GUI에 실 데이터 연결**: `ui/main.c`가 부팅 시 `net/ig_client`로
+      실제 홈피드를 가져오고, 포스트마다 `image_url`을 `net/https_get`(제네릭 HTTPS
+      GET, `net/ig_feed_main.c`의 TLS 보일러플레이트를 재사용 가능한 함수로 리팩터)로
+      다운로드해 `img/jpeg`로 디코드 — 영상은 커버 프레임만(모션 디코드 없음, 486
+      스코프 그대로). `ui/feed.c`는 `draw_post`를 공유하는 `PostView`로 리팩터해 목업
+      피드(`ui_feed_render`/`FeedImages`, `make preview`가 계속 씀)와 실 피드
+      (`ui_feed_render_real`/`FeedData`, 실 유저네임·캡션·좋아요수 + 디코드된 사진,
+      사진 없는 포스트는 유저네임 해시 기반 그라디언트로 대체)가 레이아웃 코드를
+      중복 없이 공유. 실 피드 가져오기 실패 시(세션 없음/네트워크 다운/IG 에러) 목업
+      피드로 자동 폴백 — 빈 화면 없음. 147 host checks(신규 `test_feed_real`), NT4
+      크로스컴파일 클린(280KB, mbedTLS 정적 링크 포함, 임포트 여전히 advapi32/gdi32/
+      comctl32/user32/kernel32/wsock32뿐, **CMOV 0개**). **실물 NT4에서 검증**: COM1
+      로그로 실제 `i.instagram.com` + `*.cdninstagram.com` TLS 접속, 실 포스트별
+      사진 성공/실패(광고 포스트는 image_url 자체가 없어 그라디언트로 정상 대체)
+      확인, 실 유저네임이 렌더된 창 스크린샷 확보
 
 ### 🎯 최종 목표 (북극성) — 업데이트됨
 설치만 하면 **로그인까지 전부 동작**하는 모놀리딕 단일 `app.exe`. 처음엔 ToS 안전한
@@ -131,8 +146,7 @@ PY
 홈피드·타인 게시물·좋아요/댓글은 아예 엔드포인트가 없다는 걸 확인 → 진짜 "피드" 경험을
 위해 **비공식 private API(브리지 없이 직접)** 로 방향 전환 (계정 위험은 사용자가 감수).
 공식 Graph API 경로(마일스톤 5의 `graphtest`)도 여전히 코드로 남아있어 필요시 병행 가능.
-남은 일: 실제 사진 다운로드+디코드(JPEG, 마일스톤 3.2), 에셋 임베드로 CD 의존 제거,
-로그인 UI, `ui/feed.c`에 실 데이터 연결 → 완전한 모놀리딕 최종 빌드.
+남은 일: 에셋 임베드로 CD 의존 제거, 로그인/토큰 입력 UI → 완전한 모놀리딕 최종 빌드.
 
 ### 해결한 NT4 함정들 (자세히는 `docs/vm-notes.md`)
 

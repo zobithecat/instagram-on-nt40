@@ -7,6 +7,7 @@
 #include "../core/model_private.h"
 #include "../img/qoi.h"
 #include "../img/jpeg.h"
+#include "../ui/feed.h"
 #include "fixtures/jpeg_test_images.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -476,6 +477,41 @@ static void test_jpeg(void) {
     CHECK(jpeg_decode(junk, (int)sizeof(junk), &bad) == -1);
 }
 
+/* ui_feed_render_real / ui_feed_content_height_real: real-feed rendering
+ * path (distinct from the built-in mock feed exercised implicitly by
+ * `make preview`). Exercise both a populated feed (with and without a decoded
+ * photo, and a NULL caption -- real posts can lack one) and an empty one, and
+ * check it never touches out-of-bounds pixels (ASan would catch that). */
+static void test_feed_real(void) {
+    Surface photo;
+    CHECK(surface_alloc(&photo, 32, 32) == 0);
+    surface_fill(&photo, ras_rgb(10, 20, 30));
+
+    FeedPost posts[2] = {
+        { "realuser", "hello from the real feed", 1234, &photo },
+        { "otheruser", NULL, 0, NULL }, /* no caption, no photo -> gradient fallback */
+    };
+    FeedData data = { posts, 2 };
+
+    CHECK(ui_feed_content_height_real(340, &data) > 0);
+
+    Surface fb;
+    CHECK(surface_alloc(&fb, 340, 600) == 0);
+    ui_feed_render_real(&fb, 0, &data);
+    /* top app bar should be the Instagram-blue fill, not left at 0 */
+    CHECK(at(&fb, 5, 5) != 0);
+    surface_free(&fb);
+    surface_free(&photo);
+
+    /* empty feed: must not crash, content height still accounts for padding */
+    FeedData empty = { NULL, 0 };
+    CHECK(ui_feed_content_height_real(340, &empty) >= 0);
+    Surface fb2;
+    CHECK(surface_alloc(&fb2, 340, 600) == 0);
+    ui_feed_render_real(&fb2, 0, &empty);
+    surface_free(&fb2);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -492,6 +528,7 @@ int main(void) {
     test_model();
     test_model_private();
     test_jpeg();
+    test_feed_real();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
