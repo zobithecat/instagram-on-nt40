@@ -13,6 +13,7 @@
 typedef struct {
     pal_render_fn render;
     pal_height_fn content_height;
+    pal_click_fn  click;    /* may be NULL -- no interactive elements */
     void         *user;
     HBITMAP       dib;      /* DIB section = compositor backbuffer */
     HDC           mem_dc;   /* memory DC holding the DIB */
@@ -184,6 +185,18 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEWHEEL: /* NT4 SP3+ / IntelliMouse; harmless if never sent */
         if (pw) scroll_by(pw, hwnd, -((short)HIWORD(wp) / WHEEL_DELTA) * 48);
         return 0;
+    case WM_LBUTTONDOWN:
+        if (pw && pw->click) {
+            int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+            if (pw->click(x, y, pw->scroll_y, pw->w, pw->user)) {
+                /* content likely changed height (a card expanded/collapsed) --
+                 * re-sync the scrollbar range/clamp and repaint, same as a
+                 * resize does. */
+                sync_scrollbar(pw, hwnd);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+        }
+        return 0;
     case WM_ERASEBKGND:
         return 1; /* backbuffer covers the whole client; skip flicker */
     case WM_PAINT:
@@ -198,11 +211,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int pal_run_window(const char *title, int w, int h, int chrome_h,
-                   pal_render_fn render, pal_height_fn content_height, void *user) {
+                   pal_render_fn render, pal_height_fn content_height,
+                   pal_click_fn click, void *user) {
     static PalWindow pw;
     ZeroMemory(&pw, sizeof(pw));
     pw.render         = render;
     pw.content_height = content_height;
+    pw.click          = click;
     pw.chrome_h       = chrome_h;
     pw.user           = user;
 

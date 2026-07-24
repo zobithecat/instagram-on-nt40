@@ -527,8 +527,8 @@ static void test_feed_real(void) {
     surface_fill(&photo, ras_rgb(10, 20, 30));
 
     FeedPost posts[2] = {
-        { "realuser", "hello from the real feed", 1234, &photo },
-        { "otheruser", NULL, 0, NULL }, /* no caption, no photo -> gradient fallback */
+        { "realuser", "hello from the real feed", 1234, &photo, 0 },
+        { "otheruser", NULL, 0, NULL, 0 }, /* no caption, no photo -> gradient fallback */
     };
     FeedData data = { posts, 2 };
 
@@ -551,6 +551,66 @@ static void test_feed_real(void) {
     surface_free(&fb2);
 }
 
+/* Caption truncation ("더보기") + click-to-expand accordion, added after a
+ * live NT4 run showed a real multi-line Korean caption overflowing its card
+ * (font.h's FONT_WIDE_LINE alone only fixed single-line overlap, not an
+ * unbounded number of wrapped lines from embedded '\n's). */
+static void test_caption_accordion(void) {
+    const int W = 340;
+
+    /* a short single-line caption should never truncate: collapsed and
+     * "expanded" produce identical content height (no "더보기" added, no
+     * extra lines to show). */
+    FeedPost short_post[1] = { { "shortuser", "just a short caption", 5, NULL, 0 } };
+    FeedData short_data = { short_post, 1 };
+    int h_collapsed = ui_feed_content_height_real(W, &short_data);
+    short_post[0].expanded = 1;
+    int h_expanded = ui_feed_content_height_real(W, &short_data);
+    CHECK_EQ(h_collapsed, h_expanded);
+
+    /* a long, multi-line caption (real captions often have embedded '\n's)
+     * DOES truncate when collapsed, and expands to something taller. */
+    const char *long_caption =
+        "line one of a caption that keeps going\n"
+        "line two also has plenty of words in it\n"
+        "line three should not be visible collapsed\n"
+        "line four is even further out\n"
+        "line five, still more\n"
+        "line six, the last one";
+    FeedPost long_post[1] = { { "longuser", long_caption, 9, NULL, 0 } };
+    FeedData long_data = { long_post, 1 };
+    int lh_collapsed = ui_feed_content_height_real(W, &long_data);
+    long_post[0].expanded = 1;
+    int lh_expanded = ui_feed_content_height_real(W, &long_data);
+    CHECK(lh_expanded > lh_collapsed);
+    long_post[0].expanded = 0; /* reset for the click test below */
+
+    /* clicking within the (single) card toggles expanded and reports a
+     * change; BAR_H is feed.c-internal, but 30 is comfortably inside any
+     * card's vertical span for a click at content y ~= 70. */
+    int changed = ui_feed_click_real(10, 100, 0, W, &long_data);
+    CHECK(changed == 1);
+    CHECK(long_post[0].expanded == 1);
+    changed = ui_feed_click_real(10, 100, 0, W, &long_data); /* toggles back */
+    CHECK(changed == 1);
+    CHECK(long_post[0].expanded == 0);
+
+    /* a click far below any card is a no-op */
+    changed = ui_feed_click_real(10, 5000, 0, W, &long_data);
+    CHECK(changed == 0);
+
+    /* rendering both states doesn't crash / touch out-of-bounds pixels
+     * (ASan would catch it), at both collapsed and expanded heights. */
+    Surface fb;
+    CHECK(surface_alloc(&fb, W, lh_collapsed + 50) == 0);
+    ui_feed_render_real(&fb, 0, &long_data);
+    surface_free(&fb);
+    long_post[0].expanded = 1;
+    CHECK(surface_alloc(&fb, W, lh_expanded + 50) == 0);
+    ui_feed_render_real(&fb, 0, &long_data);
+    surface_free(&fb);
+}
+
 int main(void) {
     test_alloc_free();
     test_fill_and_rect();
@@ -569,6 +629,7 @@ int main(void) {
     test_model_private();
     test_jpeg();
     test_feed_real();
+    test_caption_accordion();
     printf("core tests: %d checks, %d failures\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

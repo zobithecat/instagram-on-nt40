@@ -44,11 +44,15 @@ static void gradient_v(Surface *s, Rect r, uint32_t top, uint32_t bot) {
 /* Shared per-card view, filled in by either the mock feed (render_posts) or
  * the real feed (render_posts_real) and drawn by the one draw_post. `loc` and
  * `comments` may be NULL to omit that line (the real feed doesn't have a
- * location or a comment count parsed out of the private-API response). */
+ * location or a comment count parsed out of the private-API response).
+ * `expanded` is only meaningful for real posts (see FeedPost); mock posts
+ * always pass 0 (their captions are short hardcoded strings that never need
+ * truncating anyway). */
 typedef struct {
     uint32_t grad_top, grad_bot; /* fallback-gradient colors (used if photo == NULL) */
     const char *user, *loc, *likes, *caption, *comments;
     int liked;                   /* heart filled? */
+    int expanded;                /* show the full caption, no "더보기" truncation? */
     const Surface *photo;        /* decoded cover image, or NULL for the gradient */
 } PostView;
 
@@ -80,11 +84,6 @@ static const MockPost k_posts[] = {
 #define POST_PAD  8
 #define POST_GAP  6    /* vertical gap between cards (and above the first) */
 
-/* Height of one post card at content width w (matches draw_post's card.h). */
-static int post_card_height(int w) {
-    int photo_h = w - 2 * POST_PAD;
-    return 40 /*hdr*/ + photo_h + 26 /*act*/ + 36 /*cap*/ + POST_PAD;
-}
 
 /* Format "N likes" (no thousands separators -- keeps this a plain digit loop,
  * no snprintf needed in the freestanding build) into buf (cap bytes). */
@@ -116,13 +115,134 @@ static void gradient_from_name(const char *name, uint32_t *top, uint32_t *bot) {
     *bot = ras_rgb((uint8_t)(r / 2), (uint8_t)(g / 2), (uint8_t)(b / 2));
 }
 
+/* --- caption wrapping/truncation ("더보기") ---------------------------- */
+
+#define CAPTION_LINES_COLLAPSED 2   /* lines shown before truncating, like real IG */
+#define CAPTION_LINES_HARD_CAP  60  /* safety valve: bounds a pathological caption's
+                                     * card height even fully expanded (a caption
+                                     * would need >1000 rendered chars to hit this) */
+#define MORE_LABEL " 더보기"
+#define LINE_BUF_CAP 512            /* scratch buffer for one wrapped line; a line
+                                     * is already bounded to fit the card width, so
+                                     * this is generous headroom, not a real limit */
+
+typedef struct { int off, len; } CapLine;
+
+/* Wrap `caption` (may be NULL/empty) into lines fitting `max_w` px (scale 1),
+ * honoring a literal '\n' as a forced break in addition to width-based
+ * wrapping, up to CAPTION_LINES_HARD_CAP lines. Writes each line's {byte
+ * offset, byte length} into out[] (capacity CAPTION_LINES_HARD_CAP) and
+ * returns how many lines were produced (0 if caption is NULL/empty). Doesn't
+ * know anything about collapsing to CAPTION_LINES_COLLAPSED -- that's
+ * layered on top by caption_block so drawing and height-measurement agree on
+ * exactly the same wrap points no matter which one asks for it. */
+static int wrap_caption(const char *caption, int max_w, CapLine out[]) {
+    if (!caption || !caption[0]) return 0;
+    int n = 0;
+    const char *p = caption;
+    while (*p && n < CAPTION_LINES_HARD_CAP) {
+        int len;
+        font_fit_width(p, max_w, &len);
+        out[n].off = (int)(p - caption);
+        out[n].len = len;
+        n++;
+        p += len;
+        if (*p == '\n') p++; /* skip the forced break itself, don't re-wrap it */
+    }
+    return n;
+}
+
+/* Copies `len` bytes of `text` (a byte range within a larger caption, not
+ * itself NUL-terminated) into a scratch buffer and draws it -- font_draw
+ * needs a C string, wrap_caption only hands out byte ranges. */
+static void draw_line(Surface *s, int x, int y, const char *text, int len, uint32_t color) {
+    char buf[LINE_BUF_CAP];
+    if (len > LINE_BUF_CAP - 1) len = LINE_BUF_CAP - 1;
+    for (int i = 0; i < len; i++) buf[i] = text[i];
+    buf[len] = 0;
+    font_draw(s, x, y, buf, color);
+}
+
+/* Same, but appends `suffix` (a real NUL-terminated string, e.g. MORE_LABEL)
+ * immediately after -- used for the truncated last visible line. */
+static void draw_line_with_suffix(Surface *s, int x, int y, const char *text, int len,
+                                  const char *suffix, uint32_t text_color, uint32_t suffix_color) {
+    char buf[LINE_BUF_CAP];
+    if (len > LINE_BUF_CAP - 1) len = LINE_BUF_CAP - 1;
+    for (int i = 0; i < len; i++) buf[i] = text[i];
+    buf[len] = 0;
+    font_draw(s, x, y, buf, text_color);
+    font_draw(s, x + font_text_width(buf, 1), y, suffix, suffix_color);
+}
+
+/* Draws (or, if `s` is NULL, just measures) the caption block -- likes line,
+ * username line, 0+ wrapped caption lines (collapsed to
+ * CAPTION_LINES_COLLAPSED with a "더보기" suffix unless `expanded` or the
+ * caption already fits), then `comments` if non-NULL (mock feed only; the
+ * real feed never sets it) -- and returns its total height.
+ *
+ * Passing s=NULL runs the exact same wrap/line-count logic without touching
+ * any pixels, so this is the ONE place that decides how tall a caption block
+ * is: draw_post (drawing) and post_card_height (layout/scroll-height/click
+ * hit-testing) both call this, so they cannot silently disagree with each
+ * other the way a hand-duplicated height formula could. */
+static int caption_block(Surface *s, int cx, int cy, int cw,
+                         const char *likes, const char *user, const char *caption,
+                         const char *comments, int expanded) {
+    int y = cy;
+    if (s) font_draw(s, cx, y, likes, C_TEXT);
+    y += FONT_LINE + 1;
+
+    if (s) font_draw(s, cx, y, user, C_TEXT);
+    y += FONT_WIDE_LINE;
+
+    CapLine lines[CAPTION_LINES_HARD_CAP];
+    int total = wrap_caption(caption, cw, lines);
+    int visible = (expanded || total <= CAPTION_LINES_COLLAPSED) ? total : CAPTION_LINES_COLLAPSED;
+    int truncated = !expanded && total > CAPTION_LINES_COLLAPSED;
+
+    for (int i = 0; i < visible; i++) {
+        if (s) {
+            if (truncated && i == visible - 1) {
+                int more_w = font_text_width(MORE_LABEL, 1);
+                int budget = cw - more_w; if (budget < 0) budget = 0;
+                int len2;
+                font_fit_width(caption + lines[i].off, budget, &len2);
+                draw_line_with_suffix(s, cx, y, caption + lines[i].off, len2, MORE_LABEL, C_INK, C_SHADOW);
+            } else {
+                draw_line(s, cx, y, caption + lines[i].off, lines[i].len, C_INK);
+            }
+        }
+        y += FONT_WIDE_LINE;
+    }
+
+    if (comments) {
+        if (s) font_draw(s, cx, y, comments, C_SHADOW);
+        y += FONT_LINE;
+    }
+    return y - cy;
+}
+
+/* Total card height at content width w for a specific post's caption
+ * content/expand state -- calls caption_block(NULL, ...) (no drawing) so
+ * this can never drift from what draw_post actually renders. Used by the
+ * content-height calcs (scrollbar sizing) and click hit-testing, neither of
+ * which have a Surface to draw into. */
+static int post_card_height(int w, const char *likes, const char *user,
+                            const char *caption, const char *comments, int expanded) {
+    int photo_h = w - 2 * POST_PAD;
+    int cw = w - 2 * POST_PAD;
+    int cap_h = caption_block(NULL, 0, 0, cw, likes, user, caption, comments, expanded);
+    return 40 /*hdr*/ + photo_h + 26 /*act*/ + cap_h + POST_PAD;
+}
+
 /* Draw one feed post starting at top y; returns y after the post. `p->loc`
  * and `p->comments` may be NULL to omit that line (real-feed posts don't
  * have them). `p->photo` (or NULL) is the decoded post image; NULL uses the
  * gradient. */
 static int draw_post(Surface *s, int x, int y, int w, const PostView *p) {
     int pad = POST_PAD;
-    Rect card = { x, y, w, post_card_height(w) };
+    Rect card = { x, y, w, post_card_height(w, p->likes, p->user, p->caption, p->comments, p->expanded) };
 
     int hdr_h   = 40;
     int photo_h = w - 2 * pad;      /* square-ish photo */
@@ -173,20 +293,7 @@ static int draw_post(Surface *s, int x, int y, int w, const PostView *p) {
 
     cy += act_h;
 
-    /* caption: likes, "user caption", comments link. `likes`/`comments` are
-     * always our own ASCII (formatted "N likes" or a hardcoded mock string)
-     * so they keep the tight FONT_LINE pitch; the caption itself is real,
-     * externally-sourced text that may contain an 18px-tall Hangul glyph
-     * (see core/font.h's FONT_WIDE_LINE), so it gets a full wide-line's
-     * worth of clearance both above and below regardless of what it
-     * actually contains -- otherwise a Hangul caption visually overlaps the
-     * likes/comments lines instead of just taking up its reserved space. */
-    int caption_y = cy + FONT_LINE + 1;
-    font_draw(s, cx, cy, p->likes, C_TEXT);
-    font_draw(s, cx, caption_y, p->user, C_TEXT);
-    if (p->caption)
-        font_draw(s, cx + font_text_width(p->user, 1) + 4, caption_y, p->caption, C_INK);
-    if (p->comments) font_draw(s, cx, caption_y + FONT_WIDE_LINE, p->comments, C_SHADOW);
+    caption_block(s, cx, cy, cw, p->likes, p->user, p->caption, p->comments, p->expanded);
 
     return y + card.h + 6;
 }
@@ -194,14 +301,26 @@ static int draw_post(Surface *s, int x, int y, int w, const PostView *p) {
 int ui_feed_content_height(int width, void *user) {
     (void)user;
     int w = width - 12; /* content column width (6px margin each side) */
-    return POST_GAP + N_POSTS * (post_card_height(w) + POST_GAP);
+    int total = POST_GAP;
+    for (int i = 0; i < N_POSTS; i++) {
+        const MockPost *mp = &k_posts[i];
+        total += post_card_height(w, mp->likes, mp->user, mp->caption, mp->comments, 0) + POST_GAP;
+    }
+    return total;
 }
 
 int ui_feed_content_height_real(int width, void *user) {
     const FeedData *data = (const FeedData *)user;
     int count = data ? data->count : 0;
     int w = width - 12;
-    return POST_GAP + count * (post_card_height(w) + POST_GAP);
+    int total = POST_GAP;
+    for (int i = 0; i < count; i++) {
+        const FeedPost *fp = &data->posts[i];
+        char likes_buf[24];
+        format_likes(likes_buf, sizeof(likes_buf), fp->like_count);
+        total += post_card_height(w, likes_buf, fp->username, fp->caption, NULL, fp->expanded) + POST_GAP;
+    }
+    return total;
 }
 
 int ui_feed_chrome_height(void) { return BAR_H + NAV_H; }
@@ -259,7 +378,7 @@ static void fill_mock_posts(Surface *content, const void *ctx) {
         const MockPost *mp = &k_posts[i];
         PostView pv = {
             mp->grad_top, mp->grad_bot, mp->user, mp->loc, mp->likes,
-            mp->caption, mp->comments, mp->liked,
+            mp->caption, mp->comments, mp->liked, 0,
             (imgs && i < 8) ? imgs->photos[i] : NULL,
         };
         y = draw_post(content, x, y, w, &pv);
@@ -283,7 +402,7 @@ static void fill_real_posts(Surface *content, const void *ctx) {
         format_likes(likes_buf, sizeof(likes_buf), fp->like_count);
         PostView pv = {
             top, bot, fp->username, NULL, likes_buf,
-            fp->caption, NULL, 0, fp->photo,
+            fp->caption, NULL, 0, fp->expanded, fp->photo,
         };
         y = draw_post(content, x, y, w, &pv);
     }
@@ -291,4 +410,33 @@ static void fill_real_posts(Surface *content, const void *ctx) {
 
 void ui_feed_render_real(Surface *fb, int scroll_y, void *user) {
     draw_scrollable(fb, scroll_y, ui_feed_content_height_real(fb->w, user), fill_real_posts, user);
+}
+
+int ui_feed_click_real(int x_window, int y_window, int scroll_y, int width, void *user) {
+    (void)x_window;
+    FeedData *data = (FeedData *)user; /* mutates data->posts[i].expanded below */
+    if (!data) return 0;
+
+    /* Same content-space translation ui_feed_render_real's draw_scrollable
+     * does internally (content is blitted at y=BAR_H in the window, offset
+     * by the current scroll position) -- this is the one place a click
+     * handler needs to know about the chrome split, so pal.h/pal_win32.c
+     * stay ignorant of it (they just forward raw window coordinates). */
+    int y_content = y_window - BAR_H + scroll_y;
+    if (y_content < POST_GAP) return 0; /* above the first card, or in the app bar */
+
+    int w = width - 12;
+    int y = POST_GAP;
+    for (int i = 0; i < data->count; i++) {
+        FeedPost *fp = &data->posts[i];
+        char likes_buf[24];
+        format_likes(likes_buf, sizeof(likes_buf), fp->like_count);
+        int h = post_card_height(w, likes_buf, fp->username, fp->caption, NULL, fp->expanded);
+        if (y_content >= y && y_content < y + h) {
+            fp->expanded = !fp->expanded;
+            return 1;
+        }
+        y += h + POST_GAP;
+    }
+    return 0;
 }

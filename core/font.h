@@ -43,7 +43,19 @@ void font_draw_scaled(Surface *s, int x, int y, const char *str, uint32_t color,
 /* Convenience: scale 1. */
 void font_draw(Surface *s, int x, int y, const char *str, uint32_t color);
 
-/* Pixel width the string would occupy at `scale` (no trailing gap). */
+/* Pixel width the string would occupy at `scale` (no trailing gap). Stops at
+ * the first '\n', if any -- a caller measuring one line of a multi-line
+ * string shouldn't have later lines bleed into the total. */
 int  font_text_width(const char *str, int scale);
+
+/* Find the longest byte-length prefix of `str` (scale 1, never splitting a
+ * codepoint, stopping at the first '\n' same as font_text_width) whose
+ * rendered width doesn't exceed `max_w`. Always includes at least one glyph
+ * even if it alone exceeds max_w (so a caller can't get stuck making zero
+ * progress while wrapping a long line). Returns the width consumed; the byte
+ * length consumed is written to *out_len (may be NULL). For ui/feed.c's
+ * caption line-wrapping, so it doesn't need to duplicate this font's UTF-8/
+ * Hangul decoding just to measure substrings. */
+int  font_fit_width(const char *str, int max_w, int *out_len);
 
 #endif /* CORE_FONT_H */

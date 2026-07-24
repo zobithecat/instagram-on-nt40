@@ -207,26 +207,53 @@ void font_draw(Surface *s, int x, int y, const char *str, uint32_t color) {
     font_draw_scaled(s, x, y, str, color, 1);
 }
 
-int font_text_width(const char *str, int scale) {
-    if (scale < 1) scale = 1;
+/* Shared by font_text_width and font_fit_width: walks `str` glyph by glyph
+ * (ASCII or a KS X 1001 Hangul codepoint; anything else counts as a blank
+ * FONT_ADV-wide column, same as font_draw_scaled), accumulating rendered
+ * width (scale 1, ADV units so each glyph's trailing 1px gap is included).
+ * `\n` stops the walk entirely (a caller measuring a single line shouldn't
+ * have a later line's glyphs bleed into the total).
+ *
+ * If max_w < 0, walks the whole string (or to the first '\n'). If max_w >= 0,
+ * stops as soon as the NEXT glyph would push the running width past max_w --
+ * except it always accepts at least one glyph, so a single very wide glyph
+ * doesn't get stuck making zero progress. Either way, *out_len (if non-NULL)
+ * is set to the byte offset just past the last glyph that was included. */
+static int measure(const char *str, int max_w, int *out_len) {
     int width = 0, any = 0;
     const unsigned char *p = (const unsigned char *)str;
-    while (*p) {
+    while (*p && *p != '\n') {
         unsigned char c = *p;
-        if (c >= 32 && c <= 126) { width += FONT_ADV; any = 1; p++; continue; }
-
-        int seqlen = utf8_seq_len(c);
-        if (seqlen > 1 && !utf8_seq_valid(p, seqlen)) seqlen = 1;
-        if (seqlen == 3) {
-            unsigned cp = ((unsigned)(c & 0x0F) << 12) | ((unsigned)(p[1] & 0x3F) << 6) | (unsigned)(p[2] & 0x3F);
-            if (hangul_lookup(cp) >= 0) { width += HANGUL_ADV; any = 1; p += seqlen; continue; }
+        int adv, seqlen = 1;
+        if (c >= 32 && c <= 126) {
+            adv = FONT_ADV;
+        } else {
+            seqlen = utf8_seq_len(c);
+            if (seqlen > 1 && !utf8_seq_valid(p, seqlen)) seqlen = 1;
+            adv = FONT_ADV;
+            if (seqlen == 3) {
+                unsigned cp = ((unsigned)(c & 0x0F) << 12) | ((unsigned)(p[1] & 0x3F) << 6) | (unsigned)(p[2] & 0x3F);
+                if (hangul_lookup(cp) >= 0) adv = HANGUL_ADV;
+            }
         }
-        width += FONT_ADV; any = 1;
+        if (max_w >= 0 && any && (width + adv - 1) > max_w) break;
+        width += adv;
+        any = 1;
         p += seqlen;
     }
+    if (out_len) *out_len = (int)((const char *)p - str);
     if (!any) return 0;
-    /* Every glyph's ADV includes a trailing 1px gap; the original (ASCII-
-     * only) formula dropped just the last one. Same here, glyph-width-
-     * agnostic since every ADV (Latin or Hangul) reserves exactly 1px for it. */
-    return width * scale - scale;
+    /* Every glyph's ADV includes a trailing 1px gap; drop just the last one
+     * (glyph-width-agnostic since every ADV, Latin or Hangul, reserves
+     * exactly 1px for it). */
+    return width - 1;
+}
+
+int font_text_width(const char *str, int scale) {
+    if (scale < 1) scale = 1;
+    return measure(str, -1, NULL) * scale;
+}
+
+int font_fit_width(const char *str, int max_w, int *out_len) {
+    return measure(str, max_w, out_len);
 }

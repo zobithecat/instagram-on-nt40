@@ -118,11 +118,12 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
     int rc;
     if (have_real) {
         rc = pal_run_window("Instagram", 340, 600, ui_feed_chrome_height(),
-                            ui_feed_render_real, ui_feed_content_height_real, &g_real_feed);
+                            ui_feed_render_real, ui_feed_content_height_real,
+                            ui_feed_click_real, &g_real_feed);
     } else {
         load_mock_photos();
         rc = pal_run_window("Instagram", 340, 600, ui_feed_chrome_height(),
-                            ui_feed_render, ui_feed_content_height, &g_mock_imgs);
+                            ui_feed_render, ui_feed_content_height, NULL, &g_mock_imgs);
     }
 
     pal_log("=== exit %d ===", rc);
