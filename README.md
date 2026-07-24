@@ -155,6 +155,21 @@ PY
       실제로는 창이 정상 렌더링됐는데 다른 창들 뒤에 가려져 있었던 것으로 확인
       (Task Manager로 "Switch To"). 151 host checks(신규 `test_hangul`), NT4
       크로스컴파일 클린(455KB, 한글 테이블 포함, **CMOV 0개**, 임포트 불변)
+- [x] **마일스톤 9 — 캡션 "더보기" 아코디언**: 실물 NT4에서 여러 줄짜리 실제 한글
+      캡션이 카드 밖으로 넘치는 걸 사용자가 직접 재현 — `core/font`의 `\n` 처리가
+      글리프 높이 상관없이 항상 `FONT_LINE`(8px)만 내려가는 데다, 카드 높이가
+      캡션 줄 수와 무관한 고정값이었던 게 진짜 원인. 포스트 카드가 이제 **줄
+      수에 따른 가변 높이**를 가짐: `ui/feed.c`가 카드 폭에 맞게 캡션을 줄바꿈
+      (`core/font`의 신규 `font_fit_width()`), 2줄로 접고 넘치면 "더보기"를
+      붙임 — `caption_block()`이 그리기/높이계산 양쪽에서 호출하는 단일 진실
+      공급원(`Surface* s == NULL`이면 그리기 없이 높이만 계산)이라 둘이 어긋날
+      수 없음. 카드를 클릭하면 `FeedPost.expanded`가 토글되어 전체 캡션이
+      펼쳐짐(`pal_click_fn` 신규 — `pal.h`/`pal_win32.c`의 `WM_LBUTTONDOWN` →
+      `ui_feed_click_real`, 내용 높이 변경 시 스크롤바 재동기화). 160 host
+      checks(신규 `test_caption_accordion`), NT4 크로스컴파일 클린, **CMOV
+      0개**. **실물 NT4에서 검증**: 재현했던 바로 그 실제 피드로 재배포해
+      "k.meaning"/"kalo_official_kr" 등의 한글 캡션이 이제 "더보기"로 깔끔하게
+      잘리고 다음 카드와 전혀 안 겹치는 것 확인
 
 ### 🎯 최종 목표 (북극성) — 업데이트됨
 설치만 하면 **로그인까지 전부 동작**하는 모놀리딕 단일 `app.exe`. 처음엔 ToS 안전한
