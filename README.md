@@ -6,12 +6,19 @@ QEMU x86 에뮬레이션 위에서 돌립니다.
 
 ![NT4에서 렌더링되는 피드](docs/screenshots/nt4-instagram-photos.png)
 
-- **렌더링**: 손수 짠 알파 블렌딩 + 오너드로우 컨트롤을 얹은 32bpp DIB-섹션 컴포지터.
-  Win32 GDI 바로 위에서 동작.
-- **이미지**: 밑바닥부터 구현한 **QOI** 디코더 (JPEG 라이브러리 불필요, freestanding 친화적).
-- **네트워킹**(예정): Winsock2 + 비동기 + 직접 만든 HTTP/WebSocket 클라이언트.
-- **암호화**(예정): **mbedTLS** 번들로 TLS 1.2 + SNI (NT4의 SChannel은 최신 암호/TLS 1.2
-  불가), 엔트로피는 NT4 `CryptGenRandom`에서.
+- **렌더링**: 손수 짠 알파 블렌딩 32bpp DIB-섹션 컴포지터 — GDI 컨트롤 없이 픽셀을
+  직접 그리고, `BitBlt`로만 화면에 올림.
+- **폰트**: 5x7 라틴 비트맵 폰트 + KS X 1001 한글 2350자 18x18 비트맵, 전부 직접 제작
+  (GDI/트루타입 미사용) — 캡션은 카드 폭에 맞춰 줄바꿈되고 2줄 넘으면 "더보기"로 축소,
+  클릭하면 펼쳐짐.
+- **이미지**: 실제 다운로드 사진은 벤더링한 stb_image 기반 **JPEG** 디코더, 목업 데모
+  사진은 밑바닥부터 구현한 **QOI** 디코더 — 영상은 커버 프레임만(모션 디코드 없음).
+- **네트워킹**: Winsock 1.1(`wsock32`, NT4 네이티브) 블로킹 소켓 + 직접 만든 HTTP/1.1
+  클라이언트, connect/recv 전부 타임아웃 있음.
+- **암호화**: **mbedTLS** 2.28 LTS 번들로 실제 TLS 1.2 핸드셰이크 + X.509 검증(스킵
+  아님), 엔트로피는 NT4 `CryptGenRandom`에서.
+- **실 계정 연동**: 비공식 private 모바일 API로 브리지 서버 없이 NT4가 직접 통신해
+  실제 홈피드·사진을 가져옴 (계정 로그인 세션을 한 번 export해 baked).
 
 전체 아키텍처는 [native.md](native.md), QEMU/툴체인 환경은 [setup.md](setup.md) 참고.
 
@@ -19,11 +26,12 @@ QEMU x86 에뮬레이션 위에서 돌립니다.
 
 | 디렉토리 | 역할 | 테스트 |
 |-----|------|--------|
-| `core/` | OS 독립 순수 C: `raster`(DIB 픽셀·알파·다운스케일), `font`(5x7 비트맵 폰트); 이후 `http` `ws` `json` `model` | Mac clang + ASan/UBSan |
-| `img/`  | `qoi` — 밑바닥부터 만든 QOI 이미지 코덱 (디코드+인코드) | ASan 라운드트립 |
-| `pal/`  | 얇은 Win32 래퍼: 창, DIB-섹션 더블버퍼, COM1 로그, freestanding CRT shim, 파일 로더 | NT4 통합 |
-| `ui/`   | NT4 GDI: 회색 베벨 피드 컴포지터 + 커스텀 컨트롤 | NT4 통합 |
-| `tools/` | VM 실행/캡처/전송 스크립트, 호스트 렌더 프리뷰, `mkqoi` 신 생성기 | — |
+| `core/` | OS 독립 순수 C: `raster`(DIB 픽셀·알파·다운스케일), `font`(5x7 라틴 + 18x18 한글 비트맵), `json`(재귀하강 파서), `http`(요청 빌더+응답 파서), `model`/`model_private`(Graph API / private API 응답 → Feed 매핑) | Mac clang + ASan/UBSan |
+| `img/`  | `qoi`(밑바닥부터 만든 코덱, 목업 사진용), `jpeg`(벤더링한 stb_image, 실제 다운로드 사진용) | ASan 라운드트립/픽셀 검증 |
+| `net/`  | mbedTLS 플랫폼 글루, private API 요청 빌더(`ig_private`/`ig_client`), 제네릭 HTTPS 클라이언트(`https_get`), 임베드 CA, 단계별 bring-up 테스트 바이너리(`nettest`/`tlstest`/`graphtest`/`igfeed`) | NT4 통합 |
+| `pal/`  | 얇은 Win32 래퍼: 창, DIB-섹션 더블버퍼, 스크롤+클릭 처리, Winsock 1.1 소켓(타임아웃 포함), COM1 로그, freestanding CRT shim, 파일 로더 | NT4 통합 |
+| `ui/`   | 순수 C 피드 컴포지터: 회색 베벨 카드, 실 피드/목업 피드 공유 레이아웃, 캡션 줄바꿈+"더보기" 아코디언 — GDI 컨트롤 없이 `core/raster`로만 그림 | NT4 통합 + `make preview` |
+| `tools/` | VM 실행/캡처/전송 스크립트, 호스트 렌더 프리뷰, `mkqoi`/`gen_hangul_font.py` 에셋 생성기, 세션 export(`export_ig_session.py`) | — |
 
 전략: **순수 코어를 크게** 유지하고 NT4 전용 코드는 얇게. 대부분의 로직을 Mac에서 풀스피드로
 검증하고, VM은 최종 통합용으로만 씁니다.
